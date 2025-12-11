@@ -25,11 +25,11 @@ It gives you:
 
 - [Features](features.md)
 - [Install](installation.md)
-- [Usage](usage.html)
+- [Usage](usage.md)
 - [Writing Migrations](writing-migrations.md)
 - [Configuration](configuration.md)
 - [Cross Platform](cross-platform.md)
-- [Cross Platform](commands.md)
+- [Commands](commands.md)
 - [Troubleshooting](troubleshooting.md)
 - [Architecture](architecture.md)
 

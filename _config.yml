@@ -1,13 +1,19 @@
-
-title: Swift Migrator
-description: Language-agnostic SQL migration engine built in C#.
+title: SwiftScale Migrator
+description: Language-agnostic SQL migration engine built in c#
 theme: just-the-docs
 
-url: https://onas1.github.io/swift-migrator
-baseurl: ""
+url: "https://onas1.github.io"
+baseurl: "/swift-migrator"
+
+markdown: kramdown
 
 just_the_docs:
   search_enabled: true
   aux_links:
     "View on GitHub":
-      - "https://onas1.github.io/swift-migrator"
+      url: "https://github.com/<your-github-username>/swift-migrator"
+
+
+
+
+
