@@ -1,7 +1,23 @@
-## 3. Installation
+
+---
+title: Install
+nav_order: 3
+---
+
+
+# Installation
+
+Swift Migrator ships as downloadable binaries for:
+
+- Windows (x64)
+- macOS (Intel & ARM)
+- Linux (x64)
+
+All builds are generated automatically on each GitHub release.
+
 
 ### Downloading Releases
-Visit **GitHub Releases** and download the appropriate ZIP for your operating system.
+Visit **GitHub Releases**:https://github.com/onas1/swift-migrator/releases and download the appropriate ZIP for your operating system.
 
 Example structure:
 ```

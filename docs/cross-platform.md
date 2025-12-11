@@ -1,4 +1,10 @@
-## 7. Cross‑Platform Commands (`docs/cross-platform.md`)
+---
+title: Cross-Platform Commands
+nav_order: 7
+---
+
+
+## Cross‑Platform Commands
 
 ### Windows
 ```

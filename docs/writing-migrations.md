@@ -1,4 +1,11 @@
-## 6. Writing Migrations (`docs/writing-migrations.md`)
+
+---
+title: Writing Migrations
+nav_order: 5
+---
+
+
+## Writing Migrations
 
 ### Template
 ```
@@ -35,5 +42,14 @@ DROP COLUMN StudentNo;
 ```
 
 Place both inside their respective blocks.
+
+---
+
+If two pending migrations modify the same table:
+
+- SwiftScale **detects the collision**
+- Refuses to apply blindly
+
+This prevents accidental destructive changes in remote teams.
 
 ---
