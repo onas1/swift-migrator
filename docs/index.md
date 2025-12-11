@@ -16,12 +16,12 @@ The tool manages versioned SQL migrations following an **UP/DOWN** pattern. It e
 
 ## Documentation
 
-- [Install](install.md)
-- [Quickstart](quickstart.md)
-- [Commands](commands.md)
-- [Configuration](configuration.md)
-- [Providers](providers.md)
-- [Writing Migrations](writing-migrations.md)
+- [Install](installation.html)
+- [Features](features.html)
+- [Usage](usage.html)
+- [Configuration](configuration.html)
+- [Cross Platform](cross-platform.html)
+- [Writing Migrations](writing-migrations.html)
 - [Troubleshooting](troubleshooting.md)
 - [Architecture](architecture.md)
 
