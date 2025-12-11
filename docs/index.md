@@ -12,4 +12,17 @@ The tool manages versioned SQL migrations following an **UP/DOWN** pattern. It e
 - Deterministic ordering
 - Cross‑platform support (Windows, Linux, macOS)
 
+
+
+## Documentation
+
+- [Install](install.md)
+- [Quickstart](quickstart.md)
+- [Commands](commands.md)
+- [Configuration](configuration.md)
+- [Providers](providers.md)
+- [Writing Migrations](writing-migrations.md)
+- [Troubleshooting](troubleshooting.md)
+- [Architecture](architecture.md)
+
 ---
