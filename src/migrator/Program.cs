@@ -73,9 +73,7 @@ namespace migrator
                     var version = args[1];
                     await engine.RedoAsync(version);
                     return 0;
-                case "status":
-                    await engine.GetStatusAsync();
-                    return 0;
+
                 default:
                     Console.WriteLine("Unknown command");
                     return 1;

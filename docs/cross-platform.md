@@ -1,0 +1,21 @@
+## 7. Cross‑Platform Commands (`docs/cross-platform.md`)
+
+### Windows
+```
+./migrator.exe create TestMigration
+./migrator.exe apply
+```
+
+### Linux / macOS
+```
+./migrator create TestMigration
+./migrator apply
+```
+
+### Running from another folder
+```
+cd SampleApp
+migrator apply
+```
+
+---
