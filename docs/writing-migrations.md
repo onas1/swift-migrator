@@ -1,4 +1,3 @@
-
 ---
 title: Writing Migrations
 nav_order: 5
