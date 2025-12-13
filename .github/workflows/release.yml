@@ -3,7 +3,7 @@ name: Release Migrator
 on:
   push:
     tags:
-      - "v*"     # Triggers only when we push a tag like v1.0.0
+      - "v*"     # Triggers when we push a tag like v1.0.0
 
 jobs:
   build-and-publish:
@@ -24,22 +24,22 @@ jobs:
         dotnet-version: '8.0.x'
 
     - name: Restore
-      run: dotnet restore
+      run: dotnet restore src/migrator/migrator.csproj
 
     - name: Publish (${{ matrix.runtime }})
       run: |
-        dotnet publish migrator.csproj \
-            -c Release \
-            -r ${{ matrix.runtime }} \
-            --self-contained true \
-            /p:PublishSingleFile=true \
-            /p:IncludeNativeLibrariesForSelfExtract=true \
-            /p:PublishTrimmed=false
+        dotnet publish src/migrator/migrator.csproj \
+          -c Release \
+          -r ${{ matrix.runtime }} \
+          --self-contained true \
+          /p:PublishSingleFile=true \
+          /p:IncludeNativeLibrariesForSelfExtract=true \
+          /p:PublishTrimmed=false
 
     - name: Archive binary
       run: |
-        mkdir artifacts
-        cp bin/Release/net8.0/${{ matrix.runtime }}/publish/* artifacts/
+        mkdir -p artifacts
+        cp src/migrator/bin/Release/net8.0/${{ matrix.runtime }}/publish/* artifacts/
 
     - name: Upload runtime artifact
       uses: actions/upload-artifact@v4
