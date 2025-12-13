@@ -37,7 +37,10 @@ jobs:
           --self-contained true \
           /p:PublishSingleFile=true \
           /p:IncludeNativeLibrariesForSelfExtract=true \
-          /p:PublishTrimmed=false
+          /p:PublishTrimmed=true \
+          /p:EnableCompressionInSingleFile=true
+
+
 
     - name: Archive binary
       run: |
