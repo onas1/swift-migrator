@@ -1,6 +1,4 @@
-﻿
-
-namespace migrator.Config;
+﻿namespace migrator.Config;
 
 public class MigratorConfig
 {

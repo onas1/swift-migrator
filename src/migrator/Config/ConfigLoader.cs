@@ -4,11 +4,6 @@ using System.Text.Json;
 
 namespace migrator.Config;
 
-
-
-
-
-
 public static class ConfigLoader
 {
     public static MigratorConfig Load(string[] args)
