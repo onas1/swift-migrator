@@ -1,5 +1,6 @@
 ﻿
 
+using migrator.Providers;
 using System.Data.Common;
 
 namespace migrator.Engine;
@@ -124,7 +125,7 @@ public class SqlRunner
     public async Task<bool> AcquireLockAsync(string lockName, int timeoutSeconds = 30)
     {
         // Simple provider detection based on invariant name
-        if (_providerInvariant.Contains("Npgsql", StringComparison.OrdinalIgnoreCase))
+        if (_providerInvariant == SupportedProviders.postgresql)
         {
             // Use a 64-bit hash of the lockName and call pg_advisory_lock
             var hash = ComputeInt64Hash(lockName);
@@ -132,7 +133,7 @@ public class SqlRunner
             var ok = await QueryScalarAsync<bool>(sql);
             return ok;
         }
-        else if (_providerInvariant.Contains("SqlClient", StringComparison.OrdinalIgnoreCase) || _providerInvariant.Contains("System.Data.SqlClient", StringComparison.OrdinalIgnoreCase))
+        else if (_providerInvariant == SupportedProviders.mssql)
         {
             // Use sp_getapplock
             var sql = $"EXEC sp_getapplock @Resource = @res, @LockMode = 'Exclusive', @LockTimeout = @to, @DbPrincipal = 'public'";
@@ -147,31 +148,31 @@ public class SqlRunner
                 return false;
             }
         }
-        else if (_providerInvariant.Contains("MySql", StringComparison.OrdinalIgnoreCase) || _providerInvariant.Contains("MySqlConnector", StringComparison.OrdinalIgnoreCase))
+        else if (_providerInvariant == SupportedProviders.mysql)
         {
             var sql = $"SELECT GET_LOCK(@name, @to)";
             var parameters = new Dictionary<string, object?> { { "@name", lockName }, { "@to", timeoutSeconds } };
             var ok = await QueryScalarAsync<long>(sql);
             return ok == 1;
         }
-
         // Fallback: no lock support, return true but caller should be aware
+        Utils.SendInfoMessage($"Warning: Locking not supported for provider '{_providerInvariant}'. Proceeding without acquiring lock.");
         return true;
     }
 
     public async Task ReleaseLockAsync(string lockName)
     {
-        if (_providerInvariant.Contains("Npgsql", StringComparison.OrdinalIgnoreCase))
+        if (_providerInvariant == SupportedProviders.postgresql)
         {
             var hash = ComputeInt64Hash(lockName);
             await ExecuteNonQueryAsync($"SELECT pg_advisory_unlock({hash});");
         }
-        else if (_providerInvariant.Contains("SqlClient", StringComparison.OrdinalIgnoreCase) || _providerInvariant.Contains("System.Data.SqlClient", StringComparison.OrdinalIgnoreCase))
+        else if (_providerInvariant == SupportedProviders.mssql)
         {
             var sql = $"EXEC sp_releaseapplock @Resource = @res, @LockOwner = 'Public'";
             await ExecuteNonQueryAsync(sql, new Dictionary<string, object?> { { "@res", lockName } });
         }
-        else if (_providerInvariant.Contains("MySql", StringComparison.OrdinalIgnoreCase) || _providerInvariant.Contains("MySqlConnector", StringComparison.OrdinalIgnoreCase))
+        else if (_providerInvariant == SupportedProviders.mysql)
         {
             await ExecuteNonQueryAsync($"SELECT RELEASE_LOCK(@name)", new Dictionary<string, object?> { { "@name", lockName } });
         }

@@ -1,84 +1,118 @@
-﻿using Microsoft.Data.SqlClient;
-using migrator.Config;
+﻿using migrator.Config;
 using migrator.Engine;
-using Npgsql;
-using System.Data.Common;
 
-namespace migrator
+
+namespace migrator;
+
+internal class Program
 {
-   internal class Program
+    static async Task<int> Main(string[] args)
     {
-        static async Task<int> Main(string[] args)
-        {
+
             if (args.Length == 0)
             {
-                Console.WriteLine("Usage: migrator <command> [args]\nCommands: create <description> | status | apply");
-                return 1;
+                Utils.SendTitleMessage("Migration Tool");
+                Utils.SendTitleMessage("--------------");
+                Utils.SendHelpMessage("Usage: migrator <command> [options]");
+                Utils.SendHelpMessage("");
+                Utils.SendHelpMessage("Run 'migrator help' for a list of available commands.");
+                return 0;
             }
 
-            var command = args[0].ToLowerInvariant();
 
-            //var migrationsPath = Path.Combine(Directory.GetCurrentDirectory(), "migrations");
-            var migrationsPath = Path.Combine(Environment.CurrentDirectory, "migrations");
+        var command = args[0].ToLowerInvariant();
 
-            Directory.CreateDirectory(migrationsPath);
+        var migrationsPath = Path.Combine(Environment.CurrentDirectory, "migrations");
+        Directory.CreateDirectory(migrationsPath);
+        
+        MigratorConfig config = ConfigLoader.Load(args);
+        var engine = new MigrationEngine(migrationsPath, config.Provider, config.ConnectionString);
+        engine.SetupSupportedProviders();
 
-            // === CONFIG ===
-            // Provide your ADO.NET provider invariant (e.g. "Npgsql" for Postgres or "System.Data.SqlClient")
-            // and the connection string. For local testing, you can point to an existing DB.
-            //var providerInvariant = Environment.GetEnvironmentVariable("MIGRATOR_PROVIDER") ?? "Npgsql";
-            //var connectionString = Environment.GetEnvironmentVariable("MIGRATOR_CONN") ??
-            //    "Host=localhost;Port=5432;Username=postgres;Password=postgres;Database=migratordb";
+        switch (command)
+        {
+            case "create":
+                int r = CreateMigrationFile(args, migrationsPath);
+                return r;
 
+            case "status":
+                var status = await engine.GetStatusAsync();
+                Utils.SendInfoMessage(status);
+                return 0;
 
-
-            var config = ConfigLoader.Load(args);
-
-            DbProviderFactories.RegisterFactory("SqlClient", SqlClientFactory.Instance );
-            DbProviderFactories.RegisterFactory("Npgsql",NpgsqlFactory.Instance );
-
-
-            var engine = new MigrationEngine(migrationsPath, config.Provider, config.ConnectionString);
-
-            switch (command)
-            {
-                case "create":
-                    if (args.Length < 2)
-                    {
-                        Console.WriteLine("Usage: migrator create \"Add users table\"");
-                        return 1;
-                    }
-                    var desc = string.Join(' ', args, 1, args.Length - 1);
-                    var created = engine.CreateMigrationFile(desc);
-                    Console.WriteLine($"Created migration: {created}");
-                    return 0;
-
-                case "status":
-                    var status = await engine.GetStatusAsync();
-                    Console.WriteLine(status);
-                    return 0;
-
-                case "apply":
-                    await engine.ApplyMigrationsAsync();
-                    return 0;
-                case "rollback":
-                    await engine.RollbackLastAsync();
-                    return 0;
-                case "redo":
-                    if (args.Length < 2)
-                    {
-                        Console.WriteLine("Usage: migrator redo \"20251211001611_c4128f\"");
-                        return 1;
-                    }
-                    var version = args[1];
-                    await engine.RedoAsync(version);
-                    return 0;
-
-                default:
-                    Console.WriteLine("Unknown command");
+            case "apply":
+                await engine.ApplyMigrationsAsync();
+                return 0;
+            case "rollback":
+                await engine.RollbackLastAsync();
+                return 0;
+            case "redo":
+                if (args.Length < 2)
+                {
+                    Utils.SendHelpMessage("Usage: migrator redo \"20251211001611_c4128f\"");
                     return 1;
+                }
+                var version = args[1];
+                await engine.RedoAsync(version);
+                return 0;
+            case "help":
+                Utils.PrintHelp();
+                return 0;
+
+            default:
+                Utils.SendWarningMessage("Unknown command. Run 'migrator help' for usage.");
+                return 1;
+        }
+    }
+
+
+
+
+
+
+     static int CreateMigrationFile(string[] args, string migrationPath)
+    {
+        if (args.Length < 2)
+        {
+            Utils.SendHelpMessage("Usage: migrator create \"Description\" [--author \"Name\"] [--branch \"BranchName\"]");
+            return 1;
+        }
+
+        var description = args[1];
+        string author = null;
+        string branch = null;
+
+        // Parse optional flags
+        for (int i = 2; i < args.Length; i++)
+        {
+            if (args[i] == "--author" && i + 1 < args.Length)
+            {
+                author = args[i + 1];
+                i++;
+            }
+            else if (args[i] == "--branch" && i + 1 < args.Length)
+            {
+                branch = args[i + 1];
+                i++;
             }
         }
+
+        // If author is missing, warn user
+        if (string.IsNullOrWhiteSpace(author))
+        {
+            Utils.SendWarningMessage("⚠️ Warning: No author provided.");
+            Utils.SendWarningMessage("   This migration will be created, but WILL NOT APPLY until you add an Author to the file.");
+            author = ""; // Create empty field in the file
+        }
+
+        // If branch missing, set blank but no warning needed
+        if (string.IsNullOrWhiteSpace(branch))
+            branch = "";
+        MigrationCreator fileEngine = new MigrationCreator(author, branch, migrationPath);
+        var created = fileEngine.CreateMigrationFile(description);
+        Utils.SendInfoMessage($"Created migration: {created}");
+        return 0;
+
     }
 }
 

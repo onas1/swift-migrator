@@ -1,0 +1,74 @@
+name: Release Migrator
+
+on:
+  push:
+    tags:
+      - "v*"     # Triggers only when we push a tag like v1.0.0
+
+jobs:
+  build-and-publish:
+    name: Build & Publish Binaries
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        runtime: [ "win-x64", "linux-x64", "osx-x64", "osx-arm64" ]
+
+    steps:
+    - name: Checkout source
+      uses: actions/checkout@v4
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '8.0.x'
+
+    - name: Restore
+      run: dotnet restore
+
+    - name: Publish (${{ matrix.runtime }})
+      run: |
+        dotnet publish migrator.csproj \
+            -c Release \
+            -r ${{ matrix.runtime }} \
+            --self-contained true \
+            /p:PublishSingleFile=true \
+            /p:IncludeNativeLibrariesForSelfExtract=true \
+            /p:PublishTrimmed=false
+
+    - name: Archive binary
+      run: |
+        mkdir artifacts
+        cp bin/Release/net8.0/${{ matrix.runtime }}/publish/* artifacts/
+
+    - name: Upload runtime artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: migrator-${{ matrix.runtime }}
+        path: artifacts/
+
+  create-release:
+    name: Create GitHub Release
+    needs: build-and-publish
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Download all build artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: dist
+
+    - name: Bundle artifacts
+      run: |
+        mkdir packaged
+        for d in dist/*; do
+          runtime_name=$(basename "$d")
+          zip -r packaged/$runtime_name.zip $d
+        done
+
+    - name: Create Release
+      uses: softprops/action-gh-release@v2
+      with:
+        files: packaged/*.zip
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

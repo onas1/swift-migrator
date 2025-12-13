@@ -29,24 +29,14 @@ public static class ConfigLoader
                 config.ConnectionString = fileConfig.ConnectionString;
             }
         }
+        else
+        Utils.SendWarningMessage("No migrator.json file found.");
 
         // --- 2. Load from .env ---
-        //var envPath = Path.Combine(Directory.GetCurrentDirectory(), ".env");
         var envPath = Utils.FindUpwards(".env");
-        //if (!File.Exists(envPath)) {
-
-        //    envPath = Path.Combine(Directory.GetCurrentDirectory(), ".env");
-        //    Console.WriteLine($"Finding env in {envPath}");
-        //    if (File.Exists(envPath))
-        //    {
-        //        Console.WriteLine($"Found env path in {envPath}");
-        //    }
-
-        //}
-
         if (File.Exists(envPath))
         {
-            Console.WriteLine($"Found env path in {envPath}");
+            Utils.SendInfoMessage($"Found .env file.");
 
             foreach (var line in File.ReadAllLines(envPath))
             {
@@ -57,6 +47,8 @@ public static class ConfigLoader
                     config.Provider = line["MIGRATOR_PROVIDER=".Length..].Trim();
             }
         }
+        else
+            Utils.SendWarningMessage("No .env file found.");
 
         // --- 3. Environment Variables ---
         config.Provider ??= Environment.GetEnvironmentVariable("MIGRATOR_PROVIDER");
@@ -75,9 +67,9 @@ public static class ConfigLoader
         // --- 5. Fallback defaults (development only) ---
         if (string.IsNullOrWhiteSpace(config.ConnectionString))
         {
-            Console.WriteLine("Warning: Configuration not found, using default development configuration for migrator.");
-            config.Provider ??= "SqlClient";
-            config.ConnectionString ??= "Server=localhost;Database=SwiftScale.SampleApplication; User ID=sa;Password=Admin123;;Trusted_Connection=True;";
+            Utils.SendErrorMessage(" ERROR: Configuration not found, using default development configuration for migrator. Set up database provider. ");
+            config.Provider ??= "";
+            config.ConnectionString ??= "";
         }
 
         return config;

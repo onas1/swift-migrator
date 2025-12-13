@@ -122,15 +122,6 @@ public static class Utils
         return sql;
     }
 
-    // Very cheap table name extractor — but first strip comments/strings so regex is less likely to be fooled.
-    public static string[] ExtractTableNames(string sql)
-    {
-        if (string.IsNullOrWhiteSpace(sql)) return Array.Empty<string>();
-        var clean = StripCommentsAndQuotedStrings(sql);
-        var pattern = @"\b(?:into|from|alter\s+table|create\s+table|drop\s+table|update|index\s+on)\s+([`""]?([A-Za-z0-9_\.]+)[`""]?)";
-        var matches = Regex.Matches(clean, pattern, RegexOptions.IgnoreCase);
-        return matches.Select(m => m.Groups[2].Value).Where(s => !string.IsNullOrEmpty(s)).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
-    }
 
     // Splits SQL by semicolon safely (ignores semicolons in strings/comments because we strip them first).
     public static string[] SplitSqlStatements(string sql)
@@ -141,15 +132,6 @@ public static class Utils
         var clean = StripCommentsAndQuotedStrings(sql);
 
         var statements = new List<string>();
-        var sb = new StringBuilder();
-        int idx = 0;
-        for (int i = 0; i < sql.Length; i++)
-        {
-            // if clean[idx] is semicolon then we split — we need to map indices between original and clean.
-            // Simpler approach: iterate characters and split on semicolons that are not within quotes or comments using a small state machine.
-            // We'll use a safer state machine below instead of mapping to clean string.
-            break;
-        }
 
         // Simpler robust implementation: state machine that walks original SQL.
         statements.Clear();
@@ -256,16 +238,86 @@ public static class Utils
         while (dir != null)
         {
             string candidate = Path.Combine(dir, fileName);
-            //Console.WriteLine($"Searching for {fileName} in {candidate}...");
             if (File.Exists(candidate))
                 return candidate;
 
             dir = Directory.GetParent(dir)?.FullName!;
         }
-
-        Console.WriteLine($"Warning: {fileName} not found in any parent directory.");
         return fileName;
-        //throw new FileNotFoundException($"{fileName} not found in directory tree.");
     }
+
+
+
+    public static void SendWarningMessage(string message)
+    {
+        Console.ForegroundColor = ConsoleColor.Black;
+        Console.BackgroundColor = ConsoleColor.Yellow;
+        Console.WriteLine(message);
+        Console.ResetColor();
+    }
+
+
+    public static void SendErrorMessage(string message)
+    {
+        Console.ForegroundColor = ConsoleColor.Black;
+        Console.BackgroundColor = ConsoleColor.Red;
+        Console.WriteLine(message);
+        Console.ResetColor();
+    }
+
+
+    public static void SendInfoMessage(string message)
+    {
+        Console.ForegroundColor = ConsoleColor.Green;
+        Console.BackgroundColor = ConsoleColor.Black;
+        Console.WriteLine(message);
+        Console.ResetColor();
+    }
+
+    public static void SendTitleMessage(string message)
+    {
+        Console.ForegroundColor = ConsoleColor.Cyan;
+        Console.BackgroundColor = ConsoleColor.Black;
+        Console.WriteLine(message);
+        Console.ResetColor();
+    }
+
+    public static void SendHelpMessage(string message)
+    {
+        Console.ForegroundColor = ConsoleColor.DarkGray;
+        Console.BackgroundColor = ConsoleColor.Black;
+        Console.WriteLine(message);
+        Console.ResetColor();
+    }
+
+
+    public static void PrintHelp()
+    {
+        SendTitleMessage("\nMigration Tool");
+        SendTitleMessage("--------------");
+
+        SendHelpMessage("Commands:\n");
+
+        SendHelpMessage("  migrator help");
+        SendHelpMessage("      Shows this help screen.\n");
+
+        SendHelpMessage("  migrator create \"Description\" [--author \"Full Name\"] [--branch \"branch-name\"]");
+        SendHelpMessage("      Creates a new migration template file.");
+        SendHelpMessage("      If --author is not provided, the migration will NOT be applied");
+        SendHelpMessage("      until you manually add an Author name in the generated file.\n");
+
+        SendHelpMessage("  migrator status");
+        SendHelpMessage("      Shows the current migration status (applied/pending).\n");
+
+        SendHelpMessage("  migrator apply");
+        SendHelpMessage("      Applies all pending migrations.\n");
+
+        SendHelpMessage("  migrator rollback");
+        SendHelpMessage("      Rolls back the last applied migration.\n");
+
+        SendHelpMessage("  migrator redo \"<version>\"");
+        SendHelpMessage("      Rolls back and re-applies the migration with the given version.\n");
+    }
+
 }
 
