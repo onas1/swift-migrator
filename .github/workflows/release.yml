@@ -5,6 +5,9 @@ on:
     tags:
       - "v*"     # Triggers when we push a tag like v1.0.0
 
+permissions:
+  contents: write
+
 jobs:
   build-and-publish:
     name: Build & Publish Binaries
