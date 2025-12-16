@@ -43,4 +43,4 @@ It gives you:
 ## Project Repository
 Source code and releases available here:
 
-**[View the project on GitHub](https://github.com/onas1/swift-migrator)**
+**[View project on GitHub](https://github.com/onas1/swift-migrator)**

@@ -21,7 +21,7 @@ nav_order: 2
 `status` displays:
 - Applied migrations
 - Pending migrations
-- Checksums
+- Conflicting files (if any)
 
 ### Apply migration
 `apply` Executes:
@@ -37,7 +37,7 @@ nav_order: 2
 `redo <version>` Executes:
 - The rollback SQL migration script
 - Reapply the new SQL migration script
-- Updates current migration version
+- Updates the migration record, including storing the new down script and generated checksum
 
 
 
@@ -52,4 +52,5 @@ Reads database connection values recursively upward through directories.
 - Linux (x64, arm64)
 - macOS (Intel + Apple Silicon)
 
+> No additional environment setup is required. The binaries include the .NET runtime and all necessary dependencies.
 ---

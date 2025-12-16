@@ -42,8 +42,6 @@ migrations/20251211_ab12cd_YourMigrationFileName.sql
 -- Branch: branch
 
 -- UP
-BEGIN;
-
 CREATE TABLE Users (
     Id INT IDENTITY(1,1) PRIMARY KEY,
     Username VARCHAR(50) NOT NULL UNIQUE,
@@ -51,13 +49,9 @@ CREATE TABLE Users (
     CreatedAt DATETIME2 DEFAULT GETDATE()
 );
 
-COMMIT;
-
 -- DOWN
-BEGIN;
 DROP TABLE Users;
-COMMIT;
-
+```
 
 ## 3 Apply migrations
 
@@ -79,7 +73,7 @@ migrator status
 migrator rollback
 ```
 
-## 6 Reapply specific migration verison
+## 6 Reapply specific migration version
 ```
 migrator redo verison
 ```
