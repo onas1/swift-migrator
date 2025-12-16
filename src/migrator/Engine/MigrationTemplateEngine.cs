@@ -2,13 +2,13 @@
 
 namespace migrator.Engine;
 
-public class MigrationCreator
+public class MigrationTemplateEngine
 {
     private readonly string _author;
     private readonly string _branch;
     private readonly string _migrationsPath;
 
-    public MigrationCreator( string author, string branch, string migrationsPath)
+    public MigrationTemplateEngine( string author, string branch, string migrationsPath)
     {
         _author = author;
         _branch = branch;

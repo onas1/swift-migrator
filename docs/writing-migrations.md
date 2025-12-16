@@ -10,20 +10,16 @@ nav_order: 5
 ```
 -- Migration: Add StudentNo
 -- Version: <timestamp>_<id>
+-- Author: <fullname>
+-- Branch: <branch>
 
 -- UP
-BEGIN;
+-- Write your SQL for applying the migration here.
 
--- SQL here
-
-COMMIT;
 
 -- DOWN
-BEGIN;
+-- Write your SQL for reverting the migration here.
 
--- Revert logic here
-
-COMMIT;
 ```
 
 ### Example: Adding `StudentNo` to `TeacherClass`
@@ -46,7 +42,7 @@ Place both inside their respective blocks.
 
 If two pending migrations modify the same table:
 
-- SwiftScale **detects the collision**
+- Swift migrator **detects the collision**
 - Refuses to apply blindly
 
 This prevents accidental destructive changes in remote teams.

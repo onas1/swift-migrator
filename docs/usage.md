@@ -25,16 +25,22 @@ MIGRATOR_CONN="Host=localhost;Database=mydb;Username=postgres;Password=postgres"
 - Execute the command
 
 ```
-migrator create YourMigrationFileName
+migrator create YourMigrationFileName --Author "full name" --branch "branchName"
 ```
 Generates something like:
 ```
 migrations/20251211_ab12cd_YourMigrationFileName.sql
 ```
+> ⚠️ Migrations **without an author will not be applied**.
 
 - Open and edit the file:
 
 ```sql
+-- Migration: Your Migration FIle Name
+-- Version: 20251211_ab12cd
+-- Author: full name
+-- Branch: branch
+
 -- UP
 BEGIN;
 
@@ -71,6 +77,11 @@ migrator status
 ## 5 Rollback last migration
 ```
 migrator rollback
+```
+
+## 6 Reapply specific migration verison
+```
+migrator redo verison
 ```
 
 ---

@@ -1,13 +1,9 @@
----
-title: Configuration
-nav_order: 6
----
 
 
 
 ## Configuration
 
-SwiftScale reads configuration in this order:
+Swift migrator reads configuration in this order:
 1. CLI arguments  
 2. Environment variables  
 3. `.env` file 
@@ -18,7 +14,7 @@ SwiftScale reads configuration in this order:
 ## `.env` example
 
 ```
-MIGRATOR_PROVIDER=SqlClient|Npgsql|mysql
+MIGRATOR_PROVIDER=SqlClient|Npgsql|MySql|MySql.Data
 MIGRATOR_CONN="..."
 ```
 
@@ -34,7 +30,9 @@ migrator apply --provider=Npgsql --conn="Host=localhost;..."
 
 - `SqlClient` (SQL Server)
 - `Npgsql` (PostgreSQL)
-- More coming soon (MySQL, Mongo, Dynamo, SQLite)
+- `MySql` (MySQL)
+- `MySql.Data` (Oracle)
+
 
 
 

@@ -1,85 +1,4 @@
-﻿
-//using System.Security.Cryptography;
-//using System.Text;
-//using System.Text.RegularExpressions;
-
-//namespace migrator.Engine;
-
-//public static class Utils
-//{
-//    public static string ShortId()
-//    {
-//        // 6 hex chars random - enough to avoid accidental collisions
-//        var b = RandomNumberGenerator.GetBytes(3);
-//        return BitConverter.ToString(b).Replace("-", "").ToLowerInvariant();
-//    }
-
-//    public static string TimestampNowUtc()
-//    {
-//        return DateTime.UtcNow.ToString("yyyyMMddHHmmss");
-//    }
-
-//    // Very cheap table name extractor - scans SQL for FROM/INTO/ALTER TABLE/CREATE TABLE/DROP TABLE/UPDATE patterns
-//    public static string[] ExtractTableNames(string sql)
-//    {
-//        if (string.IsNullOrWhiteSpace(sql)) return Array.Empty<string>();
-//        var pattern = @"\b(?:into|from|alter\s+table|create\s+table|drop\s+table|update|index\s+on)\s+([`""]?([A-Za-z0-9_\.]+)[`""]?)";
-//        var matches = Regex.Matches(sql, pattern, RegexOptions.IgnoreCase);
-//        return matches.Select(m => m.Groups[2].Value).Where(s => !string.IsNullOrEmpty(s)).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
-//    }
-
-//    public static string SanitizeName(string name)
-//    {
-//        // remove spaces and unsafe chars
-//        return Regex.Replace(name.ToLowerInvariant(), @"[^a-z0-9_\-]", "-").Trim('-');
-//    }
-//}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+﻿using System.IO.Compression;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -229,9 +148,47 @@ public static class Utils
 
 
 
+    public static long ComputeInt64Hash(string input)
+    {
+        using var sha = SHA1.Create();
+        var b = sha.ComputeHash(Encoding.UTF8.GetBytes(input));
+        // Use first 8 bytes as signed 64-bit
+        long val = 0;
+        for (int i = 0; i < 8; i++) val = (val << 8) | b[i];
+        return Math.Abs(val);
+    }
 
 
-   public static  string FindUpwards(string fileName)
+    public static byte[] CompressString(string downSql)
+    {
+        var input = Encoding.UTF8.GetBytes(downSql);
+
+        using var ms = new MemoryStream();
+        using (var brotli = new BrotliStream(ms, CompressionLevel.SmallestSize))
+        {
+            brotli.Write(input, 0, input.Length);
+        }
+
+        return ms.ToArray();
+    }
+
+
+    public static string DecompressString(byte[] compressed)
+    {
+        using var input = new MemoryStream(compressed);
+        using var brotli = new BrotliStream(input, CompressionMode.Decompress);
+        using var output = new MemoryStream();
+
+        brotli.CopyTo(output);
+        return Encoding.UTF8.GetString(output.ToArray());
+    }
+
+
+
+
+
+
+    public static  string FindUpwards(string fileName)
     {
         string dir = Environment.CurrentDirectory;
 
@@ -254,6 +211,7 @@ public static class Utils
         Console.BackgroundColor = ConsoleColor.Yellow;
         Console.WriteLine(message);
         Console.ResetColor();
+        Console.WriteLine("\n");
     }
 
 
@@ -263,6 +221,7 @@ public static class Utils
         Console.BackgroundColor = ConsoleColor.Red;
         Console.WriteLine(message);
         Console.ResetColor();
+        Console.WriteLine("\n");
     }
 
 
@@ -272,6 +231,8 @@ public static class Utils
         Console.BackgroundColor = ConsoleColor.Black;
         Console.WriteLine(message);
         Console.ResetColor();
+        Console.WriteLine("\n");
+
     }
 
     public static void SendTitleMessage(string message)

@@ -8,13 +8,13 @@ nav_order: 7
 
 ### Windows
 ```
-./migrator.exe create TestMigration
+./migrator.exe create TestMigration --Author "full name" --branch "branch/name"
 ./migrator.exe apply
 ```
 
 ### Linux / macOS
 ```
-./migrator create TestMigration
+./migrator create TestMigration --Author "full name" --branch "branch/name"
 ./migrator apply
 ```
 

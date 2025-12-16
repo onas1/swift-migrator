@@ -10,63 +10,117 @@ public static class ConfigLoader
     {
         var config = new MigratorConfig();
 
-        // --- 1. Load from migrator.json ---
-        //var jsonPath = Path.Combine(Directory.GetCurrentDirectory(), "migrator.json");
-        var jsonPath = Utils.FindUpwards( "migrator.json");
+        // 1. .env
+        ApplyEnvFile(config);
 
-        if (File.Exists(jsonPath))
+        // 2. migrator.json
+        ApplyJsonFile(config);
+
+        // 3. Environment variables
+        ApplyEnvironment(config);
+
+        // 4. CLI args (highest priority)
+        ApplyCliArgs(config, args);
+
+        Validate(config);
+
+        return config;
+    }
+
+
+
+
+
+
+
+    private static void ApplyEnvFile(MigratorConfig config)
+    {
+        if( IsComplete(config)) return;
+        var path = Utils.FindUpwards(".env");
+        if (!File.Exists(path))
         {
-            var json = File.ReadAllText(jsonPath);
-            var fileConfig = JsonSerializer.Deserialize<MigratorConfig>(json);
-            if (fileConfig != null)
-            {
-                config.Provider = fileConfig.Provider;
-                config.ConnectionString = fileConfig.ConnectionString;
-            }
-        }
-        else
-        Utils.SendWarningMessage("No migrator.json file found.");
-
-        // --- 2. Load from .env ---
-        var envPath = Utils.FindUpwards(".env");
-        if (File.Exists(envPath))
-        {
-            Utils.SendInfoMessage($"Found .env file.");
-
-            foreach (var line in File.ReadAllLines(envPath))
-            {
-                if (line.StartsWith("MIGRATOR_CONN="))
-                    config.ConnectionString = line["MIGRATOR_CONN=".Length..].Trim();
-
-                if (line.StartsWith("MIGRATOR_PROVIDER="))
-                    config.Provider = line["MIGRATOR_PROVIDER=".Length..].Trim();
-            }
-        }
-        else
             Utils.SendWarningMessage("No .env file found.");
+            return;
+        }
 
-        // --- 3. Environment Variables ---
+        Utils.SendInfoMessage("Found .env file.");
+
+        foreach (var line in File.ReadLines(path))
+        {
+            if (line.StartsWith("MIGRATOR_CONN="))
+                config.ConnectionString ??= line["MIGRATOR_CONN=".Length..].Trim();
+
+            else if (line.StartsWith("MIGRATOR_PROVIDER="))
+                config.Provider ??= line["MIGRATOR_PROVIDER=".Length..].Trim();
+        }
+    }
+
+
+
+    private static void ApplyJsonFile(MigratorConfig config)
+    {
+        if (IsComplete(config)) return;
+        var path = Utils.FindUpwards("migrator.json");
+        if (!File.Exists(path))
+        {
+            Utils.SendWarningMessage("No migrator.json file found.");
+            return;
+        }
+
+        Utils.SendInfoMessage("Found migrator.json file.");
+
+        var json = File.ReadAllText(path);
+        var fileConfig = JsonSerializer.Deserialize<MigratorConfig>(json);
+        if (fileConfig == null) return;
+
+        config.Provider ??= fileConfig.Provider;
+        config.ConnectionString ??= fileConfig.ConnectionString;
+    }
+
+
+
+    private static void ApplyEnvironment(MigratorConfig config)
+    {
         config.Provider ??= Environment.GetEnvironmentVariable("MIGRATOR_PROVIDER");
         config.ConnectionString ??= Environment.GetEnvironmentVariable("MIGRATOR_CONN");
+    }
 
-        // --- 4. CLI Flags ---
+
+    private static void ApplyCliArgs(MigratorConfig config, string[] args)
+    {
         foreach (var arg in args)
         {
             if (arg.StartsWith("--conn="))
                 config.ConnectionString = arg["--conn=".Length..];
 
-            if (arg.StartsWith("--provider="))
+            else if (arg.StartsWith("--provider="))
                 config.Provider = arg["--provider=".Length..];
         }
+    }
 
-        // --- 5. Fallback defaults (development only) ---
+    private static bool IsComplete(MigratorConfig config) =>
+      !string.IsNullOrWhiteSpace(config.Provider) && !string.IsNullOrWhiteSpace(config.ConnectionString);
+    
+
+    private static void Validate(MigratorConfig config)
+    {
         if (string.IsNullOrWhiteSpace(config.ConnectionString))
         {
-            Utils.SendErrorMessage(" ERROR: Configuration not found, using default development configuration for migrator. Set up database provider. ");
-            config.Provider ??= "";
-            config.ConnectionString ??= "";
+            Utils.SendErrorMessage("ERROR: No connection string configured.");
+            throw new InvalidOperationException("No configuration found. Provide connection string via .env, migrator.json, environment variables, or CLI." );
         }
 
-        return config;
+        if (string.IsNullOrWhiteSpace(config.Provider))
+        {
+            Utils.SendErrorMessage("ERROR: No provider configured.");
+            throw new InvalidOperationException("Database provider is required.");
+        }
     }
+
+
+
+
+
+
+
 }

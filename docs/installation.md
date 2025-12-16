@@ -16,7 +16,7 @@ All builds are generated automatically on each GitHub release.
 
 
 ### Downloading Releases
-Visit **GitHub Releases**:https://github.com/onas1/swift-migrator/releases and download the appropriate ZIP for your operating system.
+**[Visit GitHub Releases](https://github.com/onas1/swift-migrator/releases)** and download the appropriate ZIP for your operating system.
 
 Example structure:
 ```

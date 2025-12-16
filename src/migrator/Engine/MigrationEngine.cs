@@ -1,12 +1,13 @@
-﻿
-//using Microsoft.Data.SqlClient;
-using Microsoft.Data.SqlClient;
+﻿using Microsoft.Data.SqlClient;
 using migrator.Providers;
 using MySql.Data.MySqlClient;
 using MySqlConnector;
 using Npgsql;
+using System.Data;
 using System.Data.Common;
-//using System.Data.SqlClient;
+
+
+
 namespace migrator.Engine;
 
 public class MigrationEngine
@@ -28,14 +29,8 @@ public class MigrationEngine
     // Provider-specific version table DDL
     public async Task EnsureVersionTableAsync()
     {
-        try
-        {  
-            await _runner.ExecuteNonQueryAsync(GetEnsureVersionTableQuery(_providerInvariant, VersionTable));
-        }
-        catch (Exception ex)
-        {
-            Utils.SendWarningMessage($"Warning: automatic version-table creation failed for provider {_providerInvariant}. You may need to create {VersionTable} manually. {ex.Message}");
-        }
+        try{  await _runner.ExecuteNonQueryAsync(ScriptingEngine.GetEnsureVersionTableQuery(_providerInvariant, VersionTable)); }
+        catch (Exception ex){ Utils.SendWarningMessage($"Warning: automatic version-table creation failed for provider {_providerInvariant}. You may need to create {VersionTable} manually. {ex.Message}"); }
     }
 
     public IEnumerable<Migration> LoadAllMigrations()
@@ -89,7 +84,7 @@ public class MigrationEngine
             {
                 Utils.SendInfoMessage($"Table: {kv.Key}");
                 foreach (var m in kv.Value)
-                    Console.WriteLine($"  - {m.Version} {m.Name} ({Path.GetFileName(m.Filename)})");
+                    Console.WriteLine($"  - {m.Version} ({Path.GetFileName(m.Filename)})");
             }
             Utils.SendHelpMessage("Resolve conflicts (rename / reorder / combine migrations) and run apply again.");
             return;
@@ -106,23 +101,25 @@ public class MigrationEngine
 
         try
         {
+            var appliedAny = false;
+
             foreach (var m in unapplied)
             {
-                Utils.SendInfoMessage($"Applying {m.Version} {m.Name}...");
+               Utils.SendInfoMessage($"Applying {m.Version} {m.Name}...");
                 await ApplyMigrationAsync(m);
+                appliedAny = true;
             }
 
-            Utils.SendInfoMessage("All pending migrations applied.");
+            if (appliedAny)
+                Utils.SendInfoMessage("All pending migrations applied.");
+            else
+                Utils.SendWarningMessage("No migrations were applied.");
         }
         finally
         {
             await _runner.ReleaseLockAsync(lockName);
         }
     }
-
-
-
-
 
 
     public async Task ApplySpecificAsync(string version)
@@ -146,7 +143,7 @@ public class MigrationEngine
         try
         {
             // Check if already applied
-            string sql = GetVersionExistsQuery(_providerInvariant, VersionTable);
+            string sql = ScriptingEngine.GetVersionExistsQuery(_providerInvariant, VersionTable);
             var exists = await _runner.QueryScalarAsync<int?>(sql, new Dictionary<string, object?> { { "v", version } });
 
             if (exists.GetValueOrDefault() > 0)
@@ -166,15 +163,9 @@ public class MigrationEngine
     }
 
 
-
-
-
-
-
-
     public async Task RollbackLastAsync()
     {
-        string getLastVersionQuery = GetLatestVersionQuery(_providerInvariant, VersionTable);
+        string getLastVersionQuery = ScriptingEngine.GetLatestVersionQuery(_providerInvariant, VersionTable);
         var last = await _runner.QueryScalarAsync<string>(getLastVersionQuery);
         if (last == null) { Utils.SendInfoMessage("No migrations to rollback."); return; }
         await RollbackVersionAsync(last);
@@ -191,31 +182,34 @@ public class MigrationEngine
 
     public async Task RedoAsync(string version)
     {
-        await RollbackVersionAsync(version);
+        var migration = LoadAllMigrations().FirstOrDefault(m => m.Version == version);
+        if (migration == null) throw new Exception($"Migration {version} not found.");
+        await RollbackVersionAsync(version, skipChecksum: true);
         await ApplySpecificAsync(version);
+        var newChecksum = Utils.ComputeSha256Hex(migration.UpSql + "\n" + migration.DownSql);
+        await UpdateMigrationChecksumAsync(version, newChecksum);
     }
 
-
-
-
-    private async Task RollbackVersionAsync(string version)
+    private async Task RollbackVersionAsync(string version, bool skipChecksum = false)
     {
         var m = LoadAllMigrations().FirstOrDefault(x => x.Version == version);
         if (m == null) throw new Exception("Migration not found");
 
         if (!m.IsReversible)
-            throw new Exception($"Migration {version} is irreversible");
+        {
+            Utils.SendErrorMessage($"Migration {version} is irreversible");
+            return;
+        }
 
-        //UnsafePatternDetector.AssertSafe(m.DownSql);
-   
-
-        if(!(await ValidateChecksum(m, version)))
-            throw new Exception($"Checksum validation failed for migration {version}; aborting rollback.");
-
+        if(!skipChecksum && !(await ValidateChecksumAsync(m, version)))
+        {
+            Utils.SendErrorMessage($"Checksum validation failed for migration {version}; aborting rollback.");
+            return;
+        }
 
         Utils.SendInfoMessage($"Rolling back {version}...");
 
-        var stmts = Utils.SplitSqlStatements(m.DownSql);
+        var stmts = Utils.SplitSqlStatements((await GetVersionDownScriptAsync(version)));
         var factory = DbProviderFactories.GetFactory(_providerInvariant);
 
         using var con = factory.CreateConnection();
@@ -226,17 +220,11 @@ public class MigrationEngine
 
         try
         {
-            foreach (var stmt in stmts)
-            {
-                using var cmd = con.CreateCommand();
-                cmd.Transaction = tx;
-                cmd.CommandText = stmt;
-                await cmd.ExecuteNonQueryAsync();
-            }
+            foreach (var sqlQuery in stmts)
+                await _runner.ExecuteNonQueryAsync(sqlQuery, externalConnection: con, externalTransaction: tx);
 
-            string deleteSql = GetDeleteVersionQuery(_providerInvariant, VersionTable);
-            await _runner.ExecuteNonQueryAsync(deleteSql,new Dictionary<string, object?> { { "v", version } },
-                con, tx);
+            string deleteSql = ScriptingEngine.GetDeleteVersionQuery(_providerInvariant, VersionTable);
+            await _runner.ExecuteNonQueryAsync(deleteSql,new Dictionary<string, object?> { { "v", version }},con, tx);
 
             tx.Commit();
 
@@ -250,21 +238,6 @@ public class MigrationEngine
     }
 
 
-
-  
-
-
-
-
-    private static DbParameter CreateParam(DbCommand cmd, string name, object value)
-    {
-        var p = cmd.CreateParameter();
-        p.ParameterName = name;
-        p.Value = value;
-        return p;
-    }
-
-
     public void SetupSupportedProviders()
     {
         DbProviderFactories.RegisterFactory(SupportedProviders.mssql, SqlClientFactory.Instance);
@@ -272,11 +245,6 @@ public class MigrationEngine
         DbProviderFactories.RegisterFactory(SupportedProviders.mysql, MySqlConnectorFactory.Instance);
         DbProviderFactories.RegisterFactory(SupportedProviders.oracle, MySqlClientFactory.Instance);
     }
-
-
-
-
-
 
     private static List<KeyValuePair<string, List<Migration>>> GetConflictingMigrations(IEnumerable<Migration> unappliedMigrations)
     {
@@ -293,175 +261,39 @@ public class MigrationEngine
         return conflicts;
     }
 
-
-    private static async Task LogMigrationAsync(DbConnection con, DbTransaction tx, Migration m) 
+    private async Task LogMigrationAsync( DbConnection con,DbTransaction tx,Migration m)
     {
-        var insertSql = $"INSERT INTO {VersionTable} (version, filename, checksum, author, branch, commit_id) VALUES (@version, @filename, @checksum, @author, @branch, @commit)";
-        using (var cmd = con.CreateCommand())
+        var sql = ScriptingEngine.GetInsertMigrationQuery(_providerInvariant, VersionTable);
+
+        using var cmd = con.CreateCommand();
+        cmd.Transaction = tx;
+        cmd.CommandText = sql;
+
+        var values = new Dictionary<string, object?>
         {
-            cmd.Transaction = tx;
-            cmd.CommandText = insertSql;
-            var p1 = cmd.CreateParameter(); p1.ParameterName = "@version"; p1.Value = m.Version; cmd.Parameters.Add(p1);
-            var p2 = cmd.CreateParameter(); p2.ParameterName = "@filename"; p2.Value = Path.GetFileName(m.Filename); cmd.Parameters.Add(p2);
-            var p3 = cmd.CreateParameter(); p3.ParameterName = "@checksum"; p3.Value = m.Checksum; cmd.Parameters.Add(p3);
-            var p4 = cmd.CreateParameter(); p4.ParameterName = "@author"; p4.Value = (object?)m.Header?.Author ?? DBNull.Value; cmd.Parameters.Add(p4);
-            var p5 = cmd.CreateParameter(); p5.ParameterName = "@branch"; p5.Value = (object?)m.Header?.Branch ?? DBNull.Value; cmd.Parameters.Add(p5);
-            var p6 = cmd.CreateParameter(); p6.ParameterName = "@commit"; p6.Value = (object?)m.Header?.CommitId ?? DBNull.Value; cmd.Parameters.Add(p6);
+            ["version"] = m.Version,
+            ["filename"] = Path.GetFileName(m.Filename),
+            ["checksum"] = m.Checksum,
+            ["author"] = m.Header?.Author,
+            ["branch"] = m.Header?.Branch,
+            ["down"] = string.IsNullOrWhiteSpace(m.DownSql)? null: Utils.CompressString(m.DownSql)
+        };
 
-            await cmd.ExecuteNonQueryAsync();
-        }
+        var types = new Dictionary<string, DbType>{ ["down"] = DbType.Binary};
+        ScriptingEngine.BuildParameters(cmd, _providerInvariant, values, types);
 
+        await cmd.ExecuteNonQueryAsync();
     }
 
 
-
-
-
-    public static string GetLatestVersionQuery(string provider, string versionTable)
+    public async Task UpdateMigrationChecksumAsync(string version, string newChecksum)
     {
-        switch (provider)
-        {
-            case SupportedProviders.mssql:
-                return $"SELECT TOP 1 version FROM {versionTable} ORDER BY id DESC";
-            case SupportedProviders.mysql:
-            case SupportedProviders.postgresql:
-                return $"SELECT version FROM {versionTable} ORDER BY id DESC LIMIT 1";
-            case SupportedProviders.oracle:
-                return $"SELECT version FROM {versionTable} ORDER BY id DESC FETCH FIRST 1 ROWS ONLY";
-            default:
-                throw new NotSupportedException($"Unsupported provider: {provider}");
-        }
-    }
-
-
-
-    public static string GetEnsureVersionTableQuery(string provider, string versionTable)
+        var sql = ScriptingEngine.GetUpdateChecksumQuery(_providerInvariant, VersionTable);
+    await _runner.ExecuteNonQueryAsync(sql, ScriptingEngine.BuildParameters(_providerInvariant, new Dictionary<string, object?>
     {
-        switch (provider)
-        {
-            case SupportedProviders.postgresql:
-                return $@"
-CREATE TABLE IF NOT EXISTS {versionTable} (
-    id BIGSERIAL PRIMARY KEY,
-    version VARCHAR(100) NOT NULL UNIQUE,
-    filename TEXT,
-    checksum CHAR(64),
-    author TEXT,
-    branch TEXT,
-    commit_id TEXT,
-    applied_at TIMESTAMP WITH TIME ZONE DEFAULT now()
-);";
-
-            case SupportedProviders.mssql:
-                // SQL Server
-                return $@"
-IF NOT EXISTS (
-    SELECT * FROM sys.objects 
-    WHERE object_id = OBJECT_ID(N'{versionTable}') AND type = N'U'
-)
-BEGIN
-    CREATE TABLE {versionTable} (
-        id BIGINT IDENTITY(1,1) PRIMARY KEY,
-        version VARCHAR(100) NOT NULL UNIQUE,
-        filename NVARCHAR(MAX),
-        checksum CHAR(64),
-        author NVARCHAR(200),
-        branch NVARCHAR(200),
-        commit_id NVARCHAR(200),
-        applied_at DATETIMEOFFSET DEFAULT SYSDATETIMEOFFSET()
-    );
-END";
-
-            case SupportedProviders.mysql:
-                return $@"
-CREATE TABLE IF NOT EXISTS {versionTable} (
-    id BIGINT AUTO_INCREMENT PRIMARY KEY,
-    version VARCHAR(100) NOT NULL UNIQUE,
-    filename TEXT,
-    checksum CHAR(64),
-    author VARCHAR(200),
-    branch VARCHAR(200),
-    commit_id VARCHAR(200),
-    applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-) ENGINE=InnoDB;";
-
-            case SupportedProviders.oracle:
-                // Oracle requires a workaround because:
-                // - No IF NOT EXISTS
-                // - AUTO_INCREMENT requires IDENTITY since Oracle 12c
-                return $@"
-BEGIN
-    EXECUTE IMMEDIATE '
-        CREATE TABLE {versionTable} (
-            id NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-            version VARCHAR2(100) NOT NULL UNIQUE,
-            filename CLOB,
-            checksum CHAR(64),
-            author VARCHAR2(200),
-            branch VARCHAR2(200),
-            commit_id VARCHAR2(200),
-            applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    ';
-EXCEPTION
-    WHEN OTHERS THEN
-        IF SQLCODE = -955 THEN NULL; ELSE RAISE; END IF;
-END;";
-
-            default:
-                // Generic fallback
-                return $@"
-CREATE TABLE IF NOT EXISTS {versionTable} (
-    id INTEGER PRIMARY KEY,
-    version VARCHAR(100) NOT NULL UNIQUE,
-    filename TEXT,
-    checksum TEXT,
-    author TEXT,
-    branch TEXT,
-    commit_id TEXT,
-    applied_at DATETIME
-);";
-        }
-    }
-
-
-
-
-    private static string GetAppliedVersionsQuery(string provider, string versionTable)
-    {
-        switch (provider)
-        {
-            case SupportedProviders.postgresql:
-            case SupportedProviders.mssql:
-                return $"SELECT STRING_AGG(version, ',') FROM {versionTable};";
-
-            case SupportedProviders.mysql:
-                return $"SELECT GROUP_CONCAT(version) FROM {versionTable};";
-
-            case SupportedProviders.oracle:
-                return $"SELECT LISTAGG(version, ',') WITHIN GROUP (ORDER BY id) FROM {versionTable}";
-
-            default:
-                return $"SELECT version FROM {versionTable};";
-        }
-    }
-    private static string GetChecksumByMigrationVersionQuery(string provider, string versionTable)
-    {
-        switch (provider)
-        {
-            case SupportedProviders.postgresql:
-            case SupportedProviders.mssql:
-            case SupportedProviders.mysql:
-                // All these use '@parameter'
-                return $"SELECT checksum FROM {versionTable} WHERE version = @version;";
-
-            case SupportedProviders.oracle:
-                // Oracle must use ':parameter'
-                return $"SELECT checksum FROM {versionTable} WHERE version = :version FETCH FIRST 1 ROWS ONLY";
-
-            default:
-                return $"SELECT checksum FROM {versionTable} WHERE version = @version;";
-        }
+        { "version", version },
+        { "checksum", newChecksum }
+    }));
     }
 
 
@@ -469,13 +301,12 @@ CREATE TABLE IF NOT EXISTS {versionTable} (
     {
         var applied = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        var query = GetAppliedVersionsQuery(_providerInvariant, VersionTable);
+        var query = ScriptingEngine.GetAppliedVersionsQuery(_providerInvariant, VersionTable);
         var result = await _runner.QueryScalarAsync<object>(query);
 
         if (result is IEnumerable<object> rows)
         {
-            foreach (var row in rows)
-                applied.Add(row.ToString());
+            foreach (var row in rows) applied.Add(row.ToString());
         }
         else
         {
@@ -486,67 +317,42 @@ CREATE TABLE IF NOT EXISTS {versionTable} (
         return applied;
 
     }
-    private static string GetDeleteVersionQuery(string provider, string versionTable)
-    {
-        switch (provider)
-        {
-            case SupportedProviders.postgresql:
-            case SupportedProviders.mssql:
-            case SupportedProviders.mysql:
-                // Uses @v
-                return $"DELETE FROM {versionTable} WHERE version = @v;";
 
-            case SupportedProviders.oracle:
-                // Uses :v
-                return $"DELETE FROM {versionTable} WHERE version = :v";
-
-            default:
-                return $"DELETE FROM {versionTable} WHERE version = @v;";
-        }
-    }
-
-    private static string GetVersionExistsQuery(string provider, string versionTable)
-    {
-        switch (provider)
-        {
-            case SupportedProviders.postgresql:
-            case SupportedProviders.mssql:
-            case SupportedProviders.mysql:
-                return $"SELECT COUNT(*) FROM {versionTable} WHERE version = @v;";
-
-            case SupportedProviders.oracle:
-                return $"SELECT COUNT(*) FROM {versionTable} WHERE version = :v";
-
-            default:
-                return $"SELECT COUNT(*) FROM {versionTable} WHERE version = @v;";
-        }
-    }
-
-    private string ConstructStatusResult(IEnumerable<Migration> all, HashSet<string> applied)
+    private static string ConstructStatusResult(IEnumerable<Migration> all, HashSet<string> applied)
     {
         var buf = new System.Text.StringBuilder();
         buf.AppendLine("MIGRATIONS STATUS:");
-        foreach (var m in all)
+        if (all.Count() == applied.Count())
         {
-            buf.AppendLine($"{(applied.Contains(m.Version) ? "[X]" : "[ ]")} {m.Version}  {m.Name}  ({Path.GetFileName(m.Filename)})");
+            buf.AppendLine("No pending migration.\n");
         }
-        var conflicts = GetConflictingMigrations(all.Where(m => !applied.Contains(m.Version)).ToList());
-        if (conflicts.Any())
+        else
         {
-            buf.AppendLine();
-            buf.AppendLine("POTENTIAL CONFLICTS (multiple unapplied migrations touch the same table):");
-            foreach (var kv in conflicts)
-            {
-                buf.AppendLine($"Table: {kv.Key}");
-                foreach (var m in kv.Value)
-                    buf.AppendLine($"  - {m.Version} {m.Name}");
-            }
+            int pM = all.Count() - applied.Count();
+            buf.AppendLine($"{pM} pending migration(s).\n");
         }
 
+        foreach (var m in all)
+            {
+                buf.AppendLine($"{(applied.Contains(m.Version) ? "[X]" : "[ ]")} {m.Version}  {m.Name}  ({Path.GetFileName(m.Filename)})");
+            }
+
+            var conflicts = GetConflictingMigrations(all.Where(m => !applied.Contains(m.Version)).ToList());
+            if (conflicts.Any())
+            {
+                buf.AppendLine();
+                buf.AppendLine("POTENTIAL CONFLICTS (multiple unapplied migrations touch the same table):");
+                foreach (var kv in conflicts)
+                {
+                    buf.AppendLine($"Table: {kv.Key}");
+                    foreach (var m in kv.Value)
+                        buf.AppendLine($"  - {m.Version} {m.Name} --Author: {m.Header.Author}");
+                    buf.AppendLine("\n");
+                 }
+             }
+        
         return buf.ToString();
     }
-
-
 
 
     public async Task ApplyMigrationAsync(Migration m)
@@ -558,8 +364,8 @@ CREATE TABLE IF NOT EXISTS {versionTable} (
 
         // Unsafe SQL check
         //UnsafePatternDetector.AssertSafe(m.UpSql);
-
-
+        ValidateMigrationMetadata(m);
+       
         var upStatements = Utils.SplitSqlStatements(m.UpSql);
         var factory = DbProviderFactories.GetFactory(_providerInvariant);
 
@@ -591,12 +397,38 @@ CREATE TABLE IF NOT EXISTS {versionTable} (
 
     }
 
-    public async Task<bool> ValidateChecksum(Migration m, string version )
+    public async Task<bool> ValidateChecksumAsync(Migration m, string version )
     {
-        string query = GetChecksumByMigrationVersionQuery(_providerInvariant, VersionTable);
+        string query = ScriptingEngine.GetChecksumByMigrationVersionQuery(_providerInvariant, VersionTable);
         string existingChecksum = await _runner.QueryScalarAsync<string>(query, new Dictionary<string, object?> { { "version", version } });
         return string.Equals(m.Checksum, existingChecksum, StringComparison.OrdinalIgnoreCase);
     }
+    public async Task<string> GetVersionDownScriptAsync(string version)
+    {
+        string sql = ScriptingEngine.GetDownSqlByMigrationVersionQuery(_providerInvariant, VersionTable);
+        byte[]? compressed = await _runner.QueryScalarBytesAsync(sql, new Dictionary<string, object?> { { "version", version } });
 
+        return compressed == null
+            ? throw new InvalidOperationException($"Migration {version} has no stored down script. " +
+            "It may not have been applied or is irreversible." ) : Utils.DecompressString(compressed);
+    }
+
+
+    private static void ValidateMigrationMetadata(Migration m)
+    {
+        if (m.Header == null)
+        {
+            Utils.SendErrorMessage($"Migration {m.Version} is missing a header.");
+            throw new Exception("Invalid migration header.");
+        }
+        if (string.IsNullOrWhiteSpace(m.Header.Author))
+        {
+            Utils.SendErrorMessage($"Migration {m.Version} must declare an author.");
+            throw new Exception("Missing migration author.");
+        }
+
+        if (string.IsNullOrWhiteSpace(m.Header.Branch))
+            Utils.SendWarningMessage($"Migration {m.Version} does not declare a branch.");
+    }
 
 }

@@ -13,20 +13,18 @@ Add to connection string:
 
 TrustServerCertificate=True
 
-yaml
-Copy code
-
 ---
 
 ## Database not found
 
-Create DB manually or add a bootstrap migration:
-
+Create DB manually:
+```
 CREATE DATABASE MyDb;
+```
 ---
 
 ## Cannot find `.env`
 
-Swift migrator searches upward from current directory.
+migrator searches upward from current directory.
 
 Ensure you run the CLI from your project, not from inside the tool.

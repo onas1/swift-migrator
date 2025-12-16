@@ -107,6 +107,37 @@ public class SqlRunner
         return (T)Convert.ChangeType(res, targetType);
     }
 
+
+
+
+    public async Task<byte[]?> QueryScalarBytesAsync(string sql, IDictionary<string, object?>? parameters = null)
+    {
+        using var con = GetFactory().CreateConnection();
+        con!.ConnectionString = _connectionString;
+        await con.OpenAsync();
+
+        using var cmd = con.CreateCommand();
+        cmd.CommandText = sql;
+        AddParameters(cmd, parameters);
+
+        var res = await cmd.ExecuteScalarAsync();
+
+        if (res == null || res is DBNull)
+            return null;
+
+        return res switch
+        {
+            byte[] b => b,
+            ReadOnlyMemory<byte> rom => rom.ToArray(),
+            _ => throw new InvalidCastException(
+                $"Expected binary data but got {res.GetType().FullName}"
+            )
+        };
+    }
+
+
+
+
     private void AddParameters(DbCommand cmd, IDictionary<string, object?>? parameters)
     {
         if (parameters == null) return;
@@ -124,11 +155,10 @@ public class SqlRunner
     // Acquire a named lock (returns true if lock acquired)
     public async Task<bool> AcquireLockAsync(string lockName, int timeoutSeconds = 30)
     {
-        // Simple provider detection based on invariant name
         if (_providerInvariant == SupportedProviders.postgresql)
         {
             // Use a 64-bit hash of the lockName and call pg_advisory_lock
-            var hash = ComputeInt64Hash(lockName);
+            var hash = Utils.ComputeInt64Hash(lockName);
             var sql = $"SELECT pg_try_advisory_lock({hash});";
             var ok = await QueryScalarAsync<bool>(sql);
             return ok;
@@ -164,7 +194,7 @@ public class SqlRunner
     {
         if (_providerInvariant == SupportedProviders.postgresql)
         {
-            var hash = ComputeInt64Hash(lockName);
+            var hash = Utils.ComputeInt64Hash(lockName);
             await ExecuteNonQueryAsync($"SELECT pg_advisory_unlock({hash});");
         }
         else if (_providerInvariant == SupportedProviders.mssql)
@@ -178,13 +208,5 @@ public class SqlRunner
         }
     }
 
-    private long ComputeInt64Hash(string input)
-    {
-        using var sha = System.Security.Cryptography.SHA1.Create();
-        var b = sha.ComputeHash(System.Text.Encoding.UTF8.GetBytes(input));
-        // Use first 8 bytes as signed 64-bit
-        long val = 0;
-        for (int i = 0; i < 8; i++) val = (val << 8) | b[i];
-        return Math.Abs(val);
-    }
+   
 }

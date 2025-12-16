@@ -5,18 +5,24 @@ nav_order: 1
 
 # Swift Migrator
 
-swift migrator database migration tool is a lightweight, language‑agnostic SQL migration runner written in c#. It works for MSSQL, PostgreSQL, and MySQL, and can be used by any project regardless of language (C#, Go, TS/Node, Java, Python, etc.).
+Swift Migrator is a language-agnostic SQL database migration tool written in C#.  
+It supports MSSQL, PostgreSQL, and MySQL and can be used by **any stack** (C#, Go, Node.js, Java, Python, etc.).
 
-The tool manages versioned SQL migrations following an **UP/DOWN** pattern. It ensures consistent database schema evolution across teams, projects, and environments.
+It manages versioned SQL migrations using a strict **UP / DOWN** model to ensure predictable,
+repeatable schema changes across teams and environments.
+
+Swift Migrator is intentionally simple, explicit, and safe by default.
 
 It gives you:
-- Transaction-safe SQL migrations  
-- Multi-environment configuration (`.env`)  
-- Table-touch conflict detection  
-- Reversible UP/DOWN scripts  
-- CLI tooling for Windows, macOS, and Linux  
-- Predictable versioning (`<timestamp>_<id>_<description>.sql`)  
-- Human-first workflow 
+- Transaction-safe SQL migrations
+- Strict versioning (`<timestamp>_<id>_<description>.sql`)
+- Explicit UP and DOWN scripts
+- Author and branch metadata enforcement
+- Table-touch conflict detection
+- Migration status inspection
+- Redo support for iterative development
+- `.env`, `migrator.json`, environment variable, and CLI configuration
+- Standalone CLI binaries (Windows, macOS, Linux)
 
 
 ---
@@ -27,16 +33,14 @@ It gives you:
 - [Install](installation.md)
 - [Usage](usage.md)
 - [Writing Migrations](writing-migrations.md)
-- [Configuration](configuration.md)
+- [Providers & Configuration](providers.md)
 - [Cross Platform](cross-platform.md)
 - [Commands](commands.md)
 - [Troubleshooting](troubleshooting.md)
-- [Architecture](architecture.md)
 
 ---
 
-## 🗂️ Project Repository
+## Project Repository
 Source code and releases available here:
 
-**GitHub**: https://github.com/onas1/swift-migrator
-
+**[View the project on GitHub](https://github.com/onas1/swift-migrator)**

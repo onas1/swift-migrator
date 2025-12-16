@@ -44,7 +44,7 @@ nav_order: 2
 ### Version tracking table
 Automatically manages a version table to track applied migrations.
 
-### `.env`, `migrator.json` or Environmental variable configuration support
+### `.env`, `migrator.json`, CLI or Environmental variable configuration support
 Reads database connection values recursively upward through directories.
 
 ### Standalone binary releases for:
