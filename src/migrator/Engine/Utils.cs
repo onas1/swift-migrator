@@ -207,8 +207,8 @@ public static class Utils
 
     public static void SendWarningMessage(string message)
     {
-        Console.ForegroundColor = ConsoleColor.Black;
-        Console.BackgroundColor = ConsoleColor.Yellow;
+        Console.ForegroundColor = ConsoleColor.DarkYellow;
+        Console.BackgroundColor = ConsoleColor.Black;
         Console.WriteLine(message);
         Console.ResetColor();
         Console.WriteLine("\n");
@@ -217,8 +217,8 @@ public static class Utils
 
     public static void SendErrorMessage(string message)
     {
-        Console.ForegroundColor = ConsoleColor.Black;
-        Console.BackgroundColor = ConsoleColor.Red;
+        Console.ForegroundColor = ConsoleColor.DarkRed;
+        Console.BackgroundColor = ConsoleColor.Black;
         Console.WriteLine(message);
         Console.ResetColor();
         Console.WriteLine("\n");
@@ -251,6 +251,14 @@ public static class Utils
         Console.ResetColor();
     }
 
+    public static bool ConfirmDangerousOperation(string message)
+    {
+        SendWarningMessage(message);
+        Console.Write("Type 'yes' to continue, anything else to abort: ");
+
+        var input = Console.ReadLine();
+        return string.Equals(input, "yes", StringComparison.OrdinalIgnoreCase);
+    }
 
     public static void PrintHelp()
     {
@@ -262,22 +270,43 @@ public static class Utils
         SendHelpMessage("  migrator help");
         SendHelpMessage("      Shows this help screen.\n");
 
-        SendHelpMessage("  migrator create \"Description\" [--author \"Full Name\"] [--branch \"branch-name\"]");
+        SendHelpMessage("  migrator create \"Description\" " +
+                        "[--author \"Full Name\"] " +
+                        "[--branch \"branch-name\"] " +
+                        "[--transaction on|off]");
         SendHelpMessage("      Creates a new migration template file.");
-        SendHelpMessage("      If --author is not provided, the migration will NOT be applied");
-        SendHelpMessage("      until you manually add an Author name in the generated file.\n");
+        SendHelpMessage("      --transaction off creates a non-transactional migration.");
+        SendHelpMessage("      Migrations without an Author will NOT be applied.\n");
 
         SendHelpMessage("  migrator status");
-        SendHelpMessage("      Shows the current migration status (applied/pending).\n");
+        SendHelpMessage("      Shows applied and pending migrations.\n");
 
         SendHelpMessage("  migrator apply");
-        SendHelpMessage("      Applies all pending migrations.\n");
+        SendHelpMessage("      Applies all pending migrations (confirmation required).\n");
+
+        SendHelpMessage("  migrator apply to <version>");
+        SendHelpMessage("      Applies migrations up to and including the specified version.\n");
+
+        SendHelpMessage("  migrator apply -v <version>");
+        SendHelpMessage("      Applies a specific migration only.\n");
+
+        SendHelpMessage("  migrator apply --force");
+        SendHelpMessage("      Forces apply when conflicts or unsafe operations are detected (confirmation required).\n");
 
         SendHelpMessage("  migrator rollback");
         SendHelpMessage("      Rolls back the last applied migration.\n");
 
-        SendHelpMessage("  migrator redo \"<version>\"");
-        SendHelpMessage("      Rolls back and re-applies the migration with the given version.\n");
+        SendHelpMessage("  migrator rollback -v <version>");
+        SendHelpMessage("      Rolls back a specific applied migration only.\n");
+
+        SendHelpMessage("  migrator rollback to <version>");
+        SendHelpMessage("      Rolls back all migrations after the specified version.\n");
+
+        SendHelpMessage("  migrator rollback all");
+        SendHelpMessage("      Rolls back all applied migrations (confirmation required).\n");
+
+        SendHelpMessage("  migrator redo <version>");
+        SendHelpMessage("      Rolls back and re-applies the specified migration.\n");
     }
 
 }

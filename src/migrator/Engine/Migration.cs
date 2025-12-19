@@ -1,4 +1,6 @@
 ﻿
+using System.Runtime.Intrinsics.X86;
+
 namespace migrator.Engine;
 
 
@@ -37,11 +39,12 @@ public record Migration(string Id,string Timestamp, string Name, string Filename
 
 
 
-public record MigrationHeader(string Author, string Branch, string CommitId, string Signature)
+public record MigrationHeader(string Author, string Branch, string CommitId, string Signature, bool UseTransaction)
 {
     public static MigrationHeader ParseFromSql(string sql)
     {
         string author = null, branch = null, commit = null, signature = null;
+        bool useTransaction = true;
 
         using var reader = new StringReader(sql);
         string line;
@@ -61,9 +64,11 @@ public record MigrationHeader(string Author, string Branch, string CommitId, str
             else if (key.Equals("Branch", StringComparison.OrdinalIgnoreCase)) branch = val;
             else if (key.Equals("Commit", StringComparison.OrdinalIgnoreCase)) commit = val;
             else if (key.Equals("Signature", StringComparison.OrdinalIgnoreCase)) signature = val;
+            else if (key.Equals("Transaction", StringComparison.OrdinalIgnoreCase))
+                useTransaction = !val.Equals("off", StringComparison.OrdinalIgnoreCase);
         }
 
-        return new MigrationHeader(author, branch, commit, signature);
+        return new MigrationHeader(author, branch, commit, signature, useTransaction);
     }
 
     public string BuildSigningPayload(string checksum)
@@ -72,6 +77,7 @@ public record MigrationHeader(string Author, string Branch, string CommitId, str
             $"Author:{Author}\n" +
             $"Branch:{Branch}\n" +
             $"Commit:{CommitId}\n" +
+            $"Transaction:{(UseTransaction ? "on" : "off")}\n" +
             $"Checksum:{checksum}";
     }
 }

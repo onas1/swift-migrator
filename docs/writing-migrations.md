@@ -42,7 +42,7 @@ Place both inside their respective blocks.
 
 If two pending migrations modify the same table:
 
-- Swift migrator **detects the collision**
+- Migrator **detects the collision**
 - Refuses to apply blindly
 
 This prevents accidental destructive changes in remote teams.

@@ -40,6 +40,7 @@ migrations/20251211_ab12cd_YourMigrationFileName.sql
 -- Version: 20251211_ab12cd
 -- Author: full name
 -- Branch: branch
+-- Transaction: on
 
 -- UP
 CREATE TABLE Users (
@@ -75,7 +76,28 @@ migrator rollback
 
 ## 6 Reapply specific migration version
 ```
-migrator redo verison
+migrator redo <verison>
 ```
 
+---
+## Non-Transactional Migrations (transaction: off)
+
+Some database operations cannot run inside a transaction, for example:
+
+- PostgreSQL:
+  - `CREATE INDEX CONCURRENTLY`
+  - `VACUUM`
+  - `REINDEX CONCURRENTLY`
+- SQL Server:
+  - `CREATE DATABASE`
+  - `ALTER DATABASE`
+- MySQL:
+  - `CREATE DATABASE`
+  - `LOCK TABLES`
+
+For these cases, create a migration with transactions disabled:
+
+```bash
+migrator create "Create database" --author "Full Name" --transaction off
+```
 ---

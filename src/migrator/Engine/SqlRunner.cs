@@ -22,52 +22,56 @@ public class SqlRunner
         return DbProviderFactories.GetFactory(_providerInvariant);
     }
 
-    public async Task ExecuteScriptAsync(string sql, DbConnection? externalConnection = null, DbTransaction? externalTransaction = null)
+    /// <summary>
+    /// Executes statements and optionally starts a transaction.
+    /// Returns the connection and transaction if one was created (transaction may be null if not used).
+    /// </summary>
+    public async Task<(DbConnection connection, DbTransaction? transaction)> ExecuteScriptAsync( IEnumerable<string> statements,bool useTransaction = true, DbConnection? externalConnection = null, DbTransaction? externalTransaction = null)
     {
-        // If an external connection/transaction is supplied, use that; otherwise create and execute without transaction.
-        if (externalConnection != null)
-        {
-            using var command = externalConnection.CreateCommand();
-            command.CommandText = sql;
-            if (externalTransaction != null) command.Transaction = externalTransaction;
-            await command.ExecuteNonQueryAsync();
-            return;
-        }
+        // Use external connection if provided; otherwise create a new one
+        var ownConnection = externalConnection == null;
+        var con = externalConnection ?? GetFactory().CreateConnection()
+            ?? throw new InvalidOperationException("Failed to create database connection.");
 
-        using var con = GetFactory().CreateConnection();
-        con!.ConnectionString = _connectionString;
-        await con.OpenAsync();
-        using var cmd = con.CreateCommand();
-        cmd.CommandText = sql;
-        await cmd.ExecuteNonQueryAsync();
-    }
+        if (externalConnection == null)
+            con.ConnectionString = _connectionString;
+        if (con.State != System.Data.ConnectionState.Open)
+            await con.OpenAsync();
 
+        // Determine whether to use a transaction
+        DbTransaction? tx = externalTransaction;
+        var ownTransaction = useTransaction && tx == null;
+        if (ownTransaction)
+            tx = con.BeginTransaction();
 
-
-
-
-
-    // Execute multiple statements within a transaction (if provider supports transactions across statements).
-    public async Task ExecuteScriptWithTransactionAsync(string sql)
-    {
-        using var con = GetFactory().CreateConnection();
-        con!.ConnectionString = _connectionString;
-        await con.OpenAsync();
-        using var tx = con.BeginTransaction();
         try
         {
-            using var cmd = con.CreateCommand();
-            cmd.Transaction = tx;
-            cmd.CommandText = sql;
-            await cmd.ExecuteNonQueryAsync();
-            tx.Commit();
+            foreach (var stmt in statements)
+            {
+                using var cmd = con.CreateCommand();
+                cmd.CommandText = stmt;
+                if (tx != null) cmd.Transaction = tx;
+
+                await cmd.ExecuteNonQueryAsync();
+            }
+
+            // Return connection and transaction (may be null if non-transactional)
+            return (con, tx);
         }
         catch
         {
-            try { tx.Rollback(); } catch { /* ignore */ }
+            // Only rollback if we started the transaction ourselves
+            if (ownTransaction && tx != null)
+            {
+                try { tx.Rollback(); } catch { /* ignore */ }
+            }
             throw;
         }
+        
     }
+
+
+
 
     // Parameterized non-query helper (for inserting into version table)
     public async Task ExecuteNonQueryAsync(string sql, IDictionary<string, object?>? parameters = null, DbConnection? externalConnection = null, DbTransaction? externalTransaction = null)
@@ -129,9 +133,7 @@ public class SqlRunner
         {
             byte[] b => b,
             ReadOnlyMemory<byte> rom => rom.ToArray(),
-            _ => throw new InvalidCastException(
-                $"Expected binary data but got {res.GetType().FullName}"
-            )
+            _ => throw new InvalidCastException($"Expected binary data but got {res.GetType().FullName}")
         };
     }
 

@@ -12,50 +12,73 @@ internal class Program
 
     }
 
+
     public static int CreateMigrationFile(string[] args, string migrationPath)
     {
         if (args.Length < 2)
         {
-            Utils.SendHelpMessage("Usage: migrator create \"Description\" [--author \"Name\"] [--branch \"BranchName\"]");
+            Utils.SendHelpMessage(
+                "Usage: migrator create \"Description\" " +
+                "[--author \"Full Name\"] [--branch \"branch-name\"] [--transaction on|off]");
             return 1;
         }
 
         var description = args[1];
         string author = null;
         string branch = null;
+        bool useTransaction = true;
 
         // Parse optional flags
         for (int i = 2; i < args.Length; i++)
         {
-            if (args[i] == "--author" && i + 1 < args.Length)
+            var arg = args[i];
+
+            if (arg.Equals("--author", StringComparison.OrdinalIgnoreCase) && i + 1 < args.Length)
             {
-                author = args[i + 1];
-                i++;
+                author = args[++i];
             }
-            else if (args[i] == "--branch" && i + 1 < args.Length)
+            else if (arg.Equals("--branch", StringComparison.OrdinalIgnoreCase) && i + 1 < args.Length)
             {
-                branch = args[i + 1];
-                i++;
+                branch = args[++i];
+            }
+            else if (arg.Equals("--transaction", StringComparison.OrdinalIgnoreCase) && i + 1 < args.Length)
+            {
+                var val = args[++i];
+
+                if (val.Equals("on", StringComparison.OrdinalIgnoreCase))
+                    useTransaction = true;
+                else if (val.Equals("off", StringComparison.OrdinalIgnoreCase))
+                    useTransaction = false;
+                else
+                {
+                    Utils.SendErrorMessage("Invalid value for --transaction. Use 'on' or 'off'.");
+                    return 1;
+                }
+            }
+            else
+            {
+                Utils.SendErrorMessage($"Unknown option: {arg}");
+                return 1;
             }
         }
 
         // If author is missing, warn user
         if (string.IsNullOrWhiteSpace(author))
         {
-            Utils.SendWarningMessage("⚠️ Warning: No author provided.");
-            Utils.SendWarningMessage("   This migration will be created, but WILL NOT APPLY until you add an Author to the file.");
-            author = ""; // Create empty field in the file
+            Utils.SendWarningMessage("No author provided.");
+            Utils.SendWarningMessage("This migration will be created but WILL NOT APPLY until an Author is added.");
+            author = string.Empty;
         }
 
         // If branch missing, set blank but no warning needed
-        if (string.IsNullOrWhiteSpace(branch))
-            branch = "";
-        MigrationTemplateEngine fileEngine = new(author, branch, migrationPath);
-        var created = fileEngine.CreateMigrationFile(description);
+        branch ??= string.Empty;
+
+        var fileEngine = new MigrationTemplateEngine(author, branch, migrationPath);
+        var created = fileEngine.CreateMigrationFile(description, useTransaction);
+
         Utils.SendInfoMessage($"Created migration: {created}");
         return 0;
     }
-
 
 
 
@@ -95,11 +118,87 @@ internal class Program
                     return 0;
 
                 case "apply":
-                    await engine.ApplyMigrationsAsync();
-                    return 0;
+                    {
+                        bool force = args.Any(a => a.Equals("--force", StringComparison.OrdinalIgnoreCase));
+                        string targetVersion = "";
+                        //apply specific version
+                        if (args.Length >= 3 && args[1].Equals("-v", StringComparison.OrdinalIgnoreCase))
+                        {
+                            targetVersion = args[2];
+                            await engine.ApplySpecificAsync(targetVersion);
+                            return 0;
+                        }
+                        //apply up to version
+                        else if ((args.Length >= 3 && args[1].Equals("to", StringComparison.OrdinalIgnoreCase)))
+                        {
+                            targetVersion = args[2];
+                            await engine.ApplyMigrationsAsync(targetVersion, force);
+                            return 0;
+                        }
+                        //apply all unapplied versions
+                        else if (args.Length == 1 || (args.Length == 2 && args.Any(a => a.Equals("--force", StringComparison.OrdinalIgnoreCase))))
+                        {
+                            bool confirm = Utils.ConfirmDangerousOperation("Are you sure you want to apply all pending migrations?");
+                            if (!confirm)
+                            {
+                                Utils.SendWarningMessage("Operation aborted by user.");
+                                return 0;
+                            }
+                            await engine.ApplyMigrationsAsync("", force);
+                            return 0;
+                        }
+
+                        Utils.SendHelpMessage("Usage:");
+                        Utils.SendHelpMessage("  migrator apply");
+                        Utils.SendHelpMessage("  migrator apply to <version>");
+                        Utils.SendHelpMessage("  migrator apply -v <version>");
+                        Utils.SendHelpMessage("  migrator apply --force");
+                        return 1;
+                    }
                 case "rollback":
-                    await engine.RollbackLastAsync();
-                    return 0;
+                    {
+                        // migrator rollback
+                        if (args.Length == 1)
+                        {
+                            await engine.RollbackLastAsync();
+                            return 0;
+                        }
+
+                        // migrator rollback all
+                        if (args.Length == 2 && args[1].Equals("all", StringComparison.OrdinalIgnoreCase))
+                        {
+                            bool confirm = Utils.ConfirmDangerousOperation("Are you sure you want to rollback ALL applied migrations?");
+                            if (!confirm)
+                            {
+                                Utils.SendWarningMessage("Operation aborted by user.");
+                                return 0;
+                            }
+                            await engine.RollbackAllAppliedAsync();
+                            return 0;
+                        }
+
+                        // migrator rollback to <version>
+                        if (args.Length == 3 && args[1].Equals("to", StringComparison.OrdinalIgnoreCase))
+                        {
+                            await engine.RollbackToAsync(args[2]);
+                            return 0;
+                        }
+                        // migrator rollback to <version>
+                        if (args.Length == 3 && args[1].Equals("-v", StringComparison.OrdinalIgnoreCase))
+                        {
+                            await engine.RollbackVersionAsync(args[2]);
+                            return 0;
+                        }
+
+                        Utils.SendHelpMessage("Usage:");
+                        Utils.SendHelpMessage("  migrator rollback");
+                        Utils.SendHelpMessage("  migrator rollback to <version>");
+                        Utils.SendHelpMessage("  migrator rollback all");
+                        Utils.SendHelpMessage("  migrator rollback -v <version>");
+
+                        return 1;
+                    }
+
                 case "redo":
                     if (args.Length < 2)
                     {
@@ -110,6 +209,8 @@ internal class Program
                     await engine.RedoAsync(version);
                     return 0;
                 case "help":
+                case "--help":
+                case "-h":
                     Utils.PrintHelp();
                     return 0;
 

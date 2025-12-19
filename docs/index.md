@@ -3,8 +3,6 @@ title: Home
 nav_order: 1
 ---
 
-# Swift Migrator
-
 Swift Migrator is a language-agnostic SQL database migration tool written in C#.  
 It supports MSSQL, PostgreSQL, and MySQL and can be used by **any stack** (C#, Go, Node.js, Java, Python, etc.).
 

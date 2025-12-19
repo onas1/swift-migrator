@@ -37,6 +37,7 @@ CREATE TABLE IF NOT EXISTS {versionTable} (
     author TEXT,
     branch TEXT,
     down_script BYTEA,
+    use_transaction BOOLEAN NOT NULL DEFAULT TRUE,
     applied_at TIMESTAMP WITH TIME ZONE DEFAULT now()
 );";
 
@@ -56,6 +57,7 @@ BEGIN
         author NVARCHAR(200),
         branch NVARCHAR(200),
         down_script VARBINARY(MAX),
+        use_transaction BIT NOT NULL DEFAULT 1,
         applied_at DATETIMEOFFSET DEFAULT SYSDATETIMEOFFSET()
     );
 END";
@@ -70,6 +72,7 @@ CREATE TABLE IF NOT EXISTS {versionTable} (
     author VARCHAR(200),
     branch VARCHAR(200),
     down_script LONGBLOB,
+    use_transaction BOOLEAN NOT NULL DEFAULT TRUE,
     applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB;";
 
@@ -88,6 +91,7 @@ BEGIN
             author VARCHAR2(200),
             branch VARCHAR2(200),
             down_script BLOB,
+            use_transaction NUMBER(1) DEFAULT 1 NOT NULL,
             applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     ';
@@ -107,6 +111,7 @@ CREATE TABLE IF NOT EXISTS {versionTable} (
     author TEXT,
     branch TEXT,
     down_script TEXT,
+    use_transaction BOOLEAN NOT NULL DEFAULT TRUE,
     applied_at DATETIME
 );";
         }
@@ -198,13 +203,13 @@ CREATE TABLE IF NOT EXISTS {versionTable} (
         {
             SupportedProviders.oracle =>
                 $@"INSERT INTO {versionTable}
-               (version, filename, checksum, author, branch, down_script)
-               VALUES (:version, :filename, :checksum, :author, :branch, :down)",
+               (version, filename, checksum, author, branch, down_script, use_transaction)
+               VALUES (:version, :filename, :checksum, :author, :branch, :down, tnx)",
 
             _ =>
                 $@"INSERT INTO {versionTable}
-               (version, filename, checksum, author, branch, down_script)
-               VALUES (@version, @filename, @checksum, @author, @branch, @down)"
+               (version, filename, checksum, author, branch, down_script, use_transaction)
+               VALUES (@version, @filename, @checksum, @author, @branch, @down, @tnx)"
         };
     }
 

@@ -16,14 +16,12 @@ public class MigrationEngine
     private readonly SqlRunner _runner;
     private readonly string _providerInvariant;
     private const string VersionTable = "migrator_versions";
-    private readonly string _connectionString;
 
     public MigrationEngine(string migrationsPath, string providerInvariant, string connectionString)
     {
         _migrationsPath = migrationsPath;
         _providerInvariant = providerInvariant;
         _runner = new SqlRunner(providerInvariant, connectionString);
-        _connectionString = connectionString;
     }
 
     // Provider-specific version table DDL
@@ -33,29 +31,10 @@ public class MigrationEngine
         catch (Exception ex){ Utils.SendWarningMessage($"Warning: automatic version-table creation failed for provider {_providerInvariant}. You may need to create {VersionTable} manually. {ex.Message}"); }
     }
 
-    public IEnumerable<Migration> LoadAllMigrations()
-    {
-        var files = Directory.GetFiles(_migrationsPath, "*.sql")
-            .OrderBy(f => f, StringComparer.OrdinalIgnoreCase)
-            .ToArray();
-        var list = new List<Migration>();
-        foreach (var f in files)
-        {
-            try
-            {
-                list.Add(Migration.LoadFromFile(f));
-            }
-            catch (Exception ex)
-            {
-                Utils.SendWarningMessage($"Skipping invalid migration file {f}: {ex.Message}");
-            }
-        }
-        return list;
-    }
 
 
 
-    public async Task<string> GetStatusAsync()
+    internal async Task<string> GetStatusAsync()
     {
         await EnsureVersionTableAsync();
         var applied = await GetAppliedVersionsAsync();
@@ -64,19 +43,32 @@ public class MigrationEngine
     }
 
 
-    public async Task ApplyMigrationsAsync()
+    internal async Task ApplyMigrationsAsync(string targetVersion = "", bool force = false)
     {
         await EnsureVersionTableAsync();
 
         // Already applied versions
         var applied = await GetAppliedVersionsAsync();
 
-        var all = LoadAllMigrations().ToList();
+        var all = LoadAllMigrations()
+    .Where(m => string.IsNullOrEmpty(targetVersion) ||
+                string.Compare(m.Version, targetVersion, StringComparison.Ordinal) <= 0)
+    .ToList();
+        
 
         var unapplied = all.Where(m => !applied.Contains(m.Version)).ToList();
 
+        foreach (var m in unapplied)
+        {
+            ValidateMigrationMetadata(m);
+
+            if (m.Header.UseTransaction)
+                UnsafePatternDetector.AssertSafe(m.UpSql, _providerInvariant);
+            else
+                UnsafePatternDetector.AssertSafeOutsideTransaction(m.UpSql, _providerInvariant);
+        }
         // Get conflicting migrations if any
-          var conflicts = GetConflictingMigrations(unapplied);
+        var conflicts = GetConflictingMigrations(unapplied);
         if (conflicts.Any())
         {
             Utils.SendErrorMessage("ERROR: semantic conflicts detected — multiple pending migrations touch the same table.");
@@ -86,10 +78,27 @@ public class MigrationEngine
                 foreach (var m in kv.Value)
                     Console.WriteLine($"  - {m.Version} ({Path.GetFileName(m.Filename)})");
             }
-            Utils.SendHelpMessage("Resolve conflicts (rename / reorder / combine migrations) and run apply again.");
-            return;
-        }
 
+            if (!force)
+            {
+                Utils.SendHelpMessage(
+                    "Resolve conflicts (rename / reorder / combine migrations) and run apply again.\n" +
+                    "Use --force to bypass this check if you know what you're doing."
+                );
+                return;
+            }
+            var confirmed = Utils.ConfirmDangerousOperation(
+        "WARNING: You are about to apply migrations with detected conflicts.\n" +
+        "This may cause irreversible or unwanted schema changes.");
+
+            if (!confirmed)
+            {
+                Utils.SendInfoMessage("Operation aborted by user.");
+                return;
+            }
+
+            Utils.SendWarningMessage("Force apply confirmed. Proceeding...");
+        }
         // Acquire a global migrator lock to avoid races
         var lockName = "migrator_lock";
         var gotLock = await _runner.AcquireLockAsync(lockName, 30);
@@ -99,11 +108,12 @@ public class MigrationEngine
             return;
         }
 
+
         try
         {
             var appliedAny = false;
 
-            foreach (var m in unapplied)
+            foreach (var m in unapplied.OrderBy(m => m.Version, StringComparer.Ordinal))
             {
                Utils.SendInfoMessage($"Applying {m.Version} {m.Name}...");
                 await ApplyMigrationAsync(m);
@@ -122,7 +132,7 @@ public class MigrationEngine
     }
 
 
-    public async Task ApplySpecificAsync(string version)
+    internal async Task ApplySpecificAsync(string version)
     {
         await EnsureVersionTableAsync();
 
@@ -130,7 +140,16 @@ public class MigrationEngine
         var m = all.FirstOrDefault(x => x.Version == version);
 
         if (m == null)
-            throw new Exception($"Migration not found: {version}");
+        {
+            Utils.SendErrorMessage($"Migration {version} not found.");
+            return;
+        }
+
+        ValidateMigrationMetadata(m);
+        if (m.Header.UseTransaction)
+            UnsafePatternDetector.AssertSafe(m.UpSql, _providerInvariant);
+        else
+            UnsafePatternDetector.AssertSafeOutsideTransaction(m.UpSql, _providerInvariant);
 
         // Acquire same global lock as normal apply
         var lockName = "migrator_lock";
@@ -161,26 +180,93 @@ public class MigrationEngine
         }
 
     }
-
-
-    public async Task RollbackLastAsync()
+    
+    internal async Task RollbackLastAsync()
     {
         string getLastVersionQuery = ScriptingEngine.GetLatestVersionQuery(_providerInvariant, VersionTable);
         var last = await _runner.QueryScalarAsync<string>(getLastVersionQuery);
         if (last == null) { Utils.SendInfoMessage("No migrations to rollback."); return; }
         await RollbackVersionAsync(last);
     }
-    public async Task RollbackToAsync(string target)
+    internal async Task RollbackToAsync(string target)
     {
         var toRollback = (await GetAppliedVersionsAsync())
-            .Where(v => string.Compare(v, target, StringComparison.OrdinalIgnoreCase) > 0)
+            .Where(v => string.Compare(v, target, StringComparison.Ordinal) > 0)
             .OrderByDescending(v => v)
             .ToList();
 
         foreach (var v in toRollback) await RollbackVersionAsync(v);
     }
 
-    public async Task RedoAsync(string version)
+    internal async Task RollbackAllAppliedAsync()
+    {
+        var toRollback = (await GetAppliedVersionsAsync()).ToList();
+        foreach (var v in toRollback) await RollbackVersionAsync(v);
+    }
+
+    internal async Task RollbackVersionAsync(string version, bool skipChecksum = false)
+    {
+        var m = LoadAllMigrations().FirstOrDefault(x => x.Version == version);
+        if (m == null)
+        {
+            Utils.SendErrorMessage($"Migration {version} not found.");
+            return;
+        }
+
+        if (!m.IsReversible)
+        {
+            Utils.SendErrorMessage($"Migration {version} is irreversible");
+            return;
+        }
+
+        if (!skipChecksum && !(await ValidateChecksumAsync(m, version)))
+        {
+            Utils.SendErrorMessage($"Checksum validation failed for migration {version}; aborting rollback.");
+            return;
+        }
+
+        Utils.SendInfoMessage($"Rolling back {version}...");
+
+        var downSql = await GetVersionDownScriptAsync(version);
+        var statements = Utils.SplitSqlStatements(downSql);
+
+        foreach (var stmt in statements)
+        {
+            if (m.Header.UseTransaction)
+                UnsafePatternDetector.AssertSafe(stmt, _providerInvariant);
+            else
+                UnsafePatternDetector.AssertSafeOutsideTransaction(stmt, _providerInvariant);
+        }
+
+
+        var (connection, transaction) =
+            await _runner.ExecuteScriptAsync(statements, m.Header.UseTransaction);
+
+        string deleteSql = ScriptingEngine.GetDeleteVersionQuery(_providerInvariant, VersionTable);
+        await _runner.ExecuteNonQueryAsync(deleteSql, new Dictionary<string, object?> { { "v", version } }, connection, transaction);
+
+        try
+        {
+            transaction?.Commit();
+            Utils.SendInfoMessage($"Rolled back {version}");
+        }
+        catch
+        {
+            if (transaction != null)
+            {
+                try { transaction.Rollback(); } catch { }
+            }
+            throw;
+        }
+        finally
+        {
+            transaction?.Dispose();
+            connection.Dispose();
+        }
+    }
+
+
+    internal async Task RedoAsync(string version)
     {
         var migration = LoadAllMigrations().FirstOrDefault(m => m.Version == version);
         if (migration == null) throw new Exception($"Migration {version} not found.");
@@ -190,55 +276,8 @@ public class MigrationEngine
         await UpdateMigrationChecksumAsync(version, newChecksum);
     }
 
-    private async Task RollbackVersionAsync(string version, bool skipChecksum = false)
-    {
-        var m = LoadAllMigrations().FirstOrDefault(x => x.Version == version);
-        if (m == null) throw new Exception("Migration not found");
 
-        if (!m.IsReversible)
-        {
-            Utils.SendErrorMessage($"Migration {version} is irreversible");
-            return;
-        }
-
-        if(!skipChecksum && !(await ValidateChecksumAsync(m, version)))
-        {
-            Utils.SendErrorMessage($"Checksum validation failed for migration {version}; aborting rollback.");
-            return;
-        }
-
-        Utils.SendInfoMessage($"Rolling back {version}...");
-
-        var stmts = Utils.SplitSqlStatements((await GetVersionDownScriptAsync(version)));
-        var factory = DbProviderFactories.GetFactory(_providerInvariant);
-
-        using var con = factory.CreateConnection();
-        con.ConnectionString = _connectionString;
-
-        await con.OpenAsync();
-        using var tx = con.BeginTransaction();
-
-        try
-        {
-            foreach (var sqlQuery in stmts)
-                await _runner.ExecuteNonQueryAsync(sqlQuery, externalConnection: con, externalTransaction: tx);
-
-            string deleteSql = ScriptingEngine.GetDeleteVersionQuery(_providerInvariant, VersionTable);
-            await _runner.ExecuteNonQueryAsync(deleteSql,new Dictionary<string, object?> { { "v", version }},con, tx);
-
-            tx.Commit();
-
-            Utils.SendInfoMessage($"Rolled back {version}");
-        }
-        catch
-        {
-            try { tx.Rollback(); } catch { }
-            throw;
-        }
-    }
-
-
-    public void SetupSupportedProviders()
+    internal void SetupSupportedProviders()
     {
         DbProviderFactories.RegisterFactory(SupportedProviders.mssql, SqlClientFactory.Instance);
         DbProviderFactories.RegisterFactory(SupportedProviders.postgresql, NpgsqlFactory.Instance);
@@ -276,7 +315,9 @@ public class MigrationEngine
             ["checksum"] = m.Checksum,
             ["author"] = m.Header?.Author,
             ["branch"] = m.Header?.Branch,
-            ["down"] = string.IsNullOrWhiteSpace(m.DownSql)? null: Utils.CompressString(m.DownSql)
+            ["down"] = string.IsNullOrWhiteSpace(m.DownSql)? null: Utils.CompressString(m.DownSql),
+            ["tnx"] = m.Header?.UseTransaction,
+
         };
 
         var types = new Dictionary<string, DbType>{ ["down"] = DbType.Binary};
@@ -286,7 +327,7 @@ public class MigrationEngine
     }
 
 
-    public async Task UpdateMigrationChecksumAsync(string version, string newChecksum)
+  private async Task UpdateMigrationChecksumAsync(string version, string newChecksum)
     {
         var sql = ScriptingEngine.GetUpdateChecksumQuery(_providerInvariant, VersionTable);
     await _runner.ExecuteNonQueryAsync(sql, ScriptingEngine.BuildParameters(_providerInvariant, new Dictionary<string, object?>
@@ -355,55 +396,65 @@ public class MigrationEngine
     }
 
 
-    public async Task ApplyMigrationAsync(Migration m)
+    private async Task ApplyMigrationAsync(Migration m)
     {
+        // Signature verification (optional)
+        // if (!SignatureVerifier.Verify(m, _publicKeyBytes))
+        //     throw new Exception($"Signature verification failed for {m.Version}");
 
-        // Signature verification
-        //if (!SignatureVerifier.Verify(m, _publicKeyBytes))
-        //    throw new Exception($"Signature verification failed for {m.Version}");
-
-        // Unsafe SQL check
-        //UnsafePatternDetector.AssertSafe(m.UpSql);
         ValidateMigrationMetadata(m);
-       
-        var upStatements = Utils.SplitSqlStatements(m.UpSql);
-        var factory = DbProviderFactories.GetFactory(_providerInvariant);
 
-        using var con = factory.CreateConnection();
-        con.ConnectionString = _connectionString;
-        await con.OpenAsync();
-        using var tx = con.BeginTransaction();
+        var statements = Utils.SplitSqlStatements(m.UpSql);
+
+        // Run safety checks before execution
+        foreach (var stmt in statements)
+        {
+            if (m.Header.UseTransaction)
+                UnsafePatternDetector.AssertSafe(stmt, _providerInvariant);
+            else
+                UnsafePatternDetector.AssertSafeOutsideTransaction(stmt, _providerInvariant);
+        }
+
+        // Execute statements (transactional or not)
+        var (connection, transaction) = await _runner.ExecuteScriptAsync(statements,useTransaction: m.Header.UseTransaction );
+
         try
         {
-            foreach (var stmt in upStatements)
-            {
-                using var cmd = con.CreateCommand();
-                cmd.Transaction = tx;
-                cmd.CommandText = stmt;
-                await cmd.ExecuteNonQueryAsync();
-            }
-
             // Record migration
-            await LogMigrationAsync(con, tx, m);
-            tx.Commit();
+            await LogMigrationAsync(connection, transaction, m);
+
+            // Commit only if we started the transaction
+            if (m.Header.UseTransaction && transaction != null)
+                transaction.Commit();
+
             Utils.SendInfoMessage($"Applied {m.Version}");
-
         }
-        catch (Exception ex)
+        catch
         {
-            try { tx.Rollback(); } catch { }
-            throw new Exception($"Failed to apply {m.Version}: {ex.Message}", ex);
+            // Rollback only if transactional
+            if (m.Header.UseTransaction && transaction != null)
+            {
+                try { transaction.Rollback(); } catch { /* ignore */ }
+            }
+            throw;
         }
+        finally
+        {
+            // Dispose connection if ExecuteScriptAsync created it internally
+            if (transaction != null)
+                await transaction.DisposeAsync();
 
+            await connection.DisposeAsync();
+        }
     }
 
-    public async Task<bool> ValidateChecksumAsync(Migration m, string version )
+    private async Task<bool> ValidateChecksumAsync(Migration m, string version )
     {
         string query = ScriptingEngine.GetChecksumByMigrationVersionQuery(_providerInvariant, VersionTable);
         string existingChecksum = await _runner.QueryScalarAsync<string>(query, new Dictionary<string, object?> { { "version", version } });
         return string.Equals(m.Checksum, existingChecksum, StringComparison.OrdinalIgnoreCase);
     }
-    public async Task<string> GetVersionDownScriptAsync(string version)
+    private async Task<string> GetVersionDownScriptAsync(string version)
     {
         string sql = ScriptingEngine.GetDownSqlByMigrationVersionQuery(_providerInvariant, VersionTable);
         byte[]? compressed = await _runner.QueryScalarBytesAsync(sql, new Dictionary<string, object?> { { "version", version } });
@@ -413,6 +464,25 @@ public class MigrationEngine
             "It may not have been applied or is irreversible." ) : Utils.DecompressString(compressed);
     }
 
+    private IEnumerable<Migration> LoadAllMigrations()
+    {
+        var files = Directory.GetFiles(_migrationsPath, "*.sql")
+            .OrderBy(f => f, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        var list = new List<Migration>();
+        foreach (var f in files)
+        {
+            try
+            {
+                list.Add(Migration.LoadFromFile(f));
+            }
+            catch (Exception ex)
+            {
+                Utils.SendWarningMessage($"Skipping invalid migration file {f}: {ex.Message}");
+            }
+        }
+        return list;
+    }
 
     private static void ValidateMigrationMetadata(Migration m)
     {
@@ -430,5 +500,5 @@ public class MigrationEngine
         if (string.IsNullOrWhiteSpace(m.Header.Branch))
             Utils.SendWarningMessage($"Migration {m.Version} does not declare a branch.");
     }
-
+  
 }
